@@ -10,6 +10,7 @@ lazy val root = (project in file("."))
     name := "schemadiscovery",
     libraryDependencies ++= Seq(
       munit % Test,
-      sparkCore 
+      sparkCore,   
+      sparkSql     
     )
   )
