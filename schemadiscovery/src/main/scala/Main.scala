@@ -9,7 +9,7 @@ object Main {
 
     try { 
       //todo take the csv as a parameter
-      val dataset = spark.read.option("header", "true").csv("../datasets/LDBC/post_0_0.csv")
+      val dataset = spark.read.option("header", "true").csv("../datasets/LDBC/ldbc_inputs1/place_0_0.csv")
       val noiseLevel = 0.1 // 10% noise
       val noisyDataset = Noise.addNoise(dataset, noiseLevel) // Noise.scala
 

@@ -36,3 +36,6 @@ src_managed/
 # datasets non ziped
 datasets/LDBC/post_0_0.csv
 datasets/LDBC/ldbc_inputs1
+datasets/LDBC/__MACOSX
+
+.metals/metals.mv.db
