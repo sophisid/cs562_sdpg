@@ -22,27 +22,42 @@ object Main {
       val directory = "../datasets/LDBC/ldbc_inputs1/tmp"
 
       // Get list of CSV files in the directory
-      val files = listFiles(directory, ".csv")
+      val files = listFiles(directory)
 
       // Initialize a map to accumulate all patterns
-      var allPatterns = Map[Seq[String], Seq[Seq[Any]]]()
+      val allPatterns = mutable.Set[Seq[String]]()
 
       // Process each file
       files.foreach { file =>
         println(s"Processing file: $file")
         val dataset = loadAndProcessFile(spark, file)
-        val noiseLevel = 0.1 // 10% noise
+        val noiseLevel = 0.5 // 10% noise
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
-        val patternOfFile = createTypeToValuesMap(noisyDataset)
+        // val patterns = DataToPattern.extractPatterns(noisyDataset)
 
-        // Merge current file patterns with the accumulated patterns
-        allPatterns = mergePatterns(allPatterns, patternOfFile)
+        val patterns = detectPatterns(noisyDataset)
+        patterns.foreach { case (pattern, count) =>
+          println(s"Pattern found $count times: ${pattern.mkString(", ")}")
+        }
+        // val pattern = extractColumnPattern(noisyDataset)
+        // allPatterns += pattern
+
+        
+
+        // val patternOfFile = createTypeToValuesMap(noisyDataset)
+
+        // // Merge current file patterns with the accumulated patterns
+        // allPatterns = mergePatterns(allPatterns, patternOfFile)
       }
 
-      // Print final patterns
-      allPatterns.foreach { case (key, values) =>
-        println(s"Key: ${key.mkString(", ")} -> Values: ${values.map(_.mkString(", ")).mkString("[", "; ", "]")}")
+      // // Print final patterns
+      // allPatterns.foreach { case (key, values) =>
+      //   println(s"Key: ${key.mkString(", ")} -> Values: ${values.map(_.mkString(", ")).mkString("[", "; ", "]")}")
+      // }
+
+      allPatterns.zipWithIndex.foreach { case (pattern, index) =>
+        println(s"Pattern ${index + 1}: ${pattern.mkString(", ")}")
       }
       
     } finally {
@@ -50,12 +65,9 @@ object Main {
     }
   }
 
-  def listFiles(directory: String, extension: String): List[String] = {
-    val path = Paths.get(directory)
-    Files.list(path).iterator().asScala
-      .filter(_.toString.endsWith(extension))
-      .map(_.toString)
-      .toList
+  def listFiles(directory: String): List[String] = {
+    val dir = new java.io.File(directory)
+    dir.listFiles.filter(_.isFile).map(_.getAbsolutePath).toList
   }
 
   def loadAndProcessFile(spark: SparkSession, filePath: String): DataFrame = {
@@ -78,5 +90,23 @@ object Main {
     (map1.keySet ++ map2.keySet).map { key =>
       key -> (map1.getOrElse(key, Seq.empty) ++ map2.getOrElse(key, Seq.empty))
     }.toMap
+  }
+
+  def extractColumnPattern(df: DataFrame): Seq[String] = {
+    df.columns.sorted
+  }
+
+  def detectPatterns(df: DataFrame): Map[Seq[String], Int] = {
+    val patternCounts = mutable.Map[Seq[String], Int]()
+
+    df.collect().foreach { row =>
+      val pattern = row.schema.fields.zipWithIndex.collect {
+        case (field, index) if !row.isNullAt(index) => field.name
+      }.toSeq
+
+      patternCounts(pattern) = patternCounts.getOrElse(pattern, 0) + 1
+    }
+
+    patternCounts.toMap
   }
 }
