@@ -1,10 +1,6 @@
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.types._
-import java.nio.file.{Files, Paths}
-import scala.collection.mutable
-import scala.collection.immutable.HashMap
 import org.apache.log4j.{Level, Logger}
-import scala.jdk.CollectionConverters._
+import scala.collection.mutable
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -19,50 +15,31 @@ object Main {
 
     try {
       // Directory path to process
-      val directory = "../datasets/LDBC/ldbc_inputs1/tmp"
+      val directory = "../datasets/LDBC/ldbc_inputs1/"
 
       // Get list of CSV files in the directory
       val files = listFiles(directory)
 
-      // Initialize a set to accumulate all unique patterns
-      val allPatterns = mutable.Set[Seq[String]]()
+      // Initialize a map to accumulate all unique patterns and their corresponding rows
+      val allPatterns = mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]]()
 
       // Process each file
       files.foreach { file =>
         println(s"Processing file: $file")
         val dataset = loadAndProcessFile(spark, file)
-        val noiseLevel = 0.5 // 10% noise
+        val noiseLevel = 0.1 // 10% noise
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
-        // val patterns = DataToPattern.extractPatterns(noisyDataset)
+        // Detect patterns in the dataset
+        val patterns = DataToPattern.detectPatterns(noisyDataset)
 
-        val patterns = detectPatterns(noisyDataset)
-        // patterns.foreach { case (pattern, count) =>
-        //   println(s"Pattern found $count times: ${pattern.mkString(", ")}")
-        // }
-        // val pattern = extractColumnPattern(noisyDataset)
-        // allPatterns += pattern
-        // Add the patterns of the current file to the set of all patterns
-        allPatterns ++= patterns.keys
-
-        
-
-        // val patternOfFile = createTypeToValuesMap(noisyDataset)
-
-        // // Merge current file patterns with the accumulated patterns
-        // allPatterns = mergePatterns(allPatterns, patternOfFile)
+        // Add the patterns and rows of the current file to the map of all patterns
+        DataToPattern.addPatternsAndRows(allPatterns, patterns)
       }
 
-      // // Print final patterns
-      // allPatterns.foreach { case (key, values) =>
-      //   println(s"Key: ${key.mkString(", ")} -> Values: ${values.map(_.mkString(", ")).mkString("[", "; ", "]")}")
-      // }
+      // Sort and print all distinct patterns found
+      DataToPattern.printSortedPatterns(allPatterns)
 
-      // Print all distinct patterns found
-      allPatterns.zipWithIndex.foreach { case (pattern, index) =>
-        println(s"Pattern ${index + 1}: ${pattern.mkString(", ")}")
-      }
-      
     } finally {
       spark.stop()
     }
@@ -81,35 +58,5 @@ object Main {
       .csv(filePath)
   }
 
-  def createTypeToValuesMap(df: DataFrame): Map[Seq[String], Seq[Seq[Any]]] = {
-    val columnNames = df.columns
-    val rows = df.collect().map(row => 
-      columnNames.map(col => row.getAs[Any](col)).toSeq
-    ).toSeq
-    Map(columnNames.toSeq -> rows)
-  }
 
-  def mergePatterns(map1: Map[Seq[String], Seq[Seq[Any]]], map2: Map[Seq[String], Seq[Seq[Any]]]): Map[Seq[String], Seq[Seq[Any]]] = {
-    (map1.keySet ++ map2.keySet).map { key =>
-      key -> (map1.getOrElse(key, Seq.empty) ++ map2.getOrElse(key, Seq.empty))
-    }.toMap
-  }
-
-  def extractColumnPattern(df: DataFrame): Seq[String] = {
-    df.columns.sorted
-  }
-
-  def detectPatterns(df: DataFrame): Map[Seq[String], Int] = {
-    val patternCounts = mutable.Map[Seq[String], Int]()
-
-    df.collect().foreach { row =>
-      val pattern = row.schema.fields.zipWithIndex.collect {
-        case (field, index) if !row.isNullAt(index) => field.name
-      }.toSeq
-
-      patternCounts(pattern) = patternCounts.getOrElse(pattern, 0) + 1
-    }
-
-    patternCounts.toMap
-  }
 }
