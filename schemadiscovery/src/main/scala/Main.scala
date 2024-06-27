@@ -24,7 +24,7 @@ object Main {
       // Get list of CSV files in the directory
       val files = listFiles(directory)
 
-      // Initialize a map to accumulate all patterns
+      // Initialize a set to accumulate all unique patterns
       val allPatterns = mutable.Set[Seq[String]]()
 
       // Process each file
@@ -37,11 +37,13 @@ object Main {
         // val patterns = DataToPattern.extractPatterns(noisyDataset)
 
         val patterns = detectPatterns(noisyDataset)
-        patterns.foreach { case (pattern, count) =>
-          println(s"Pattern found $count times: ${pattern.mkString(", ")}")
-        }
+        // patterns.foreach { case (pattern, count) =>
+        //   println(s"Pattern found $count times: ${pattern.mkString(", ")}")
+        // }
         // val pattern = extractColumnPattern(noisyDataset)
         // allPatterns += pattern
+        // Add the patterns of the current file to the set of all patterns
+        allPatterns ++= patterns.keys
 
         
 
@@ -56,6 +58,7 @@ object Main {
       //   println(s"Key: ${key.mkString(", ")} -> Values: ${values.map(_.mkString(", ")).mkString("[", "; ", "]")}")
       // }
 
+      // Print all distinct patterns found
       allPatterns.zipWithIndex.foreach { case (pattern, index) =>
         println(s"Pattern ${index + 1}: ${pattern.mkString(", ")}")
       }
