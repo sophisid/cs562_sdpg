@@ -39,3 +39,4 @@ datasets/LDBC/ldbc_inputs1
 datasets/LDBC/__MACOSX
 
 .metals/metals.mv.db
+/.metals
