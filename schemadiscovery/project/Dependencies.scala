@@ -8,5 +8,5 @@ object Dependencies {
   val munit = "org.scalameta" %% "munit" % munitVer
   val sparkCore = "org.apache.spark" %% "spark-core" % sparkVer
   val sparkSql = "org.apache.spark" %% "spark-sql" % sparkVer
-
+  val mllib = "org.apache.spark" %% "spark-mllib" % sparkVer
 }
