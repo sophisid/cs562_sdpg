@@ -17,7 +17,10 @@ object DataToPattern {
       if (!patternRows.contains(pattern)) {
         patternRows(pattern) = mutable.ListBuffer()
       }
-      patternRows(pattern) += row.toSeq
+      // patternRows(pattern) += row.toSeq
+      // Filter out null values from the row when adding to the patternRows map
+      val nonNullValues = row.toSeq.filter(_ != null)
+      patternRows(pattern) += nonNullValues
     }
 
     patternRows.view.mapValues(_.toSeq).toMap
