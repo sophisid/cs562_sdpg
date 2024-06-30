@@ -1,0 +1,2 @@
+cd schemadiscovery/
+sbt run
