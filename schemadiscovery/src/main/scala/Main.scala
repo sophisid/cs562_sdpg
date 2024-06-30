@@ -23,7 +23,7 @@ object Main {
 
     try {
       // Directory path to process
-      val directory = "../datasets/LDBC/ldbc_inputs1/tmp"
+      val directory = "../datasets/LDBC/ldbc_inputs1/tmp/"
 
       // Get list of CSV files in the directory
       val files = listFiles(directory)
