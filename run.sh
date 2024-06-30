@@ -1,5 +1,5 @@
-#!/bin/bash
+#!/bin/bash	
 
-# run exercise 1
+# run schema discovery
 cd schemadiscovery/
 sbt run
