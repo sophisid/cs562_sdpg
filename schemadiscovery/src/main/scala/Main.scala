@@ -1,5 +1,5 @@
 import org.apache.spark.ml.linalg.Vectors
-import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, BucketedRandomProjectionLSHModel}
+import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, BucketedRandomProjectionLSHModel, Normalizer}
 import org.apache.spark.sql.{SparkSession, DataFrame, Row}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types.{StructType, StructField, DataTypes}
@@ -7,7 +7,6 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.ml.linalg.VectorUDT
 import org.apache.log4j.{Level, Logger}
 import scala.collection.mutable
-
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -19,7 +18,8 @@ object Main {
     // Set the log level to WARN to see fewer details
     Logger.getLogger("org").setLevel(Level.ERROR)
     Logger.getLogger("akka").setLevel(Level.ERROR)
-    
+
+    import spark.implicits._
 
     try {
       // Directory path to process
@@ -43,16 +43,35 @@ object Main {
 
         // Add the patterns and rows of the current file to the map of all patterns
         DataToPattern.addPatternsAndRows(allPatterns, patterns)
-
       }
 
-      // Sort and print all distinct patterns found
-      DataToPattern.printSortedPatterns(allPatterns)
-
+      // Convert the map to a DataFrame and then to a dataset for LSH
       val dataForLSH = LSH.prepareDataForLSH(allPatterns, spark)
-      val model = LSH.setupLSH(dataForLSH)
-      val hashedData = model.transform(dataForLSH)
-      hashedData.show(false)
+
+      // Normalize feature vectors
+      val normalizer = new Normalizer()
+        .setInputCol("features")
+        .setOutputCol("normFeatures")
+        .setP(2.0) // L2 norm
+
+      val normalizedData = normalizer.transform(dataForLSH)
+      val model = LSH.setupLSH(normalizedData)
+      val hashedData = model.transform(normalizedData)
+      // hashedData.show(false)
+
+      // Group data by hashes and collect lists of ids and patterns
+      val groupedData = hashedData.groupBy("hashes")
+        .agg(
+          collect_list(col("id")).alias("grouped_ids"),
+          collect_list(col("pattern")).alias("grouped_patterns")
+        )
+
+      val uniquePatterns = groupedData.select("grouped_patterns").distinct()
+      // uniquePatterns.show(false)
+      val mergedPatterns = uniquePatterns.as[Seq[String]].map(normalizeAndMergePatterns)
+      .distinct()
+      .toDF("final_patterns")
+      mergedPatterns.show(false)
 
     } finally {
       spark.stop()
@@ -71,7 +90,7 @@ object Main {
       .option("delimiter", "|")
       .csv(filePath)
   }
-
-
-
+  def normalizeAndMergePatterns(patterns: Seq[String]): String = {
+    patterns.flatMap(_.split("\\|")).toSet.toSeq.mkString("|")
+  }
 }

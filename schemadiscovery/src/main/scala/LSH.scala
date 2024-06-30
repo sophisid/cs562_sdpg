@@ -12,27 +12,30 @@ import scala.collection.mutable
 object LSH {
 
     def setupLSH(data: DataFrame): BucketedRandomProjectionLSHModel = {
+    // val bucketLength = averageVariance * 0.5 // Example dynamic calculation
+    // val numHashTables = (10 / averageVariance).toInt.max(1) // Ensure at least one hash table
     val brp = new BucketedRandomProjectionLSH()
       .setBucketLength(2.0)
-      .setNumHashTables(3)
-      .setInputCol("features")
+      .setNumHashTables(10)
+      .setInputCol("normFeatures")
       .setOutputCol("hashes")
 
     brp.fit(data)
   }
 
-  def prepareDataForLSH(allPatterns: mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]], spark: SparkSession): DataFrame = {
+ def prepareDataForLSH(allPatterns: mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]], spark: SparkSession): DataFrame = {
     import spark.implicits._
 
-    // Convert the map to a DataFrame with an array of Doubles
-    val data = allPatterns.flatMap { case (_, listBuffer) =>
-      listBuffer.map { row =>
-        row.map {
+    // Flatten the map into a sequence and convert to DataFrame
+    val data = allPatterns.flatMap { case (pattern, listBuffer) =>
+      listBuffer.zipWithIndex.map { case (row, index) =>
+        val featureArray = row.map {
           case num: Number => num.doubleValue()
           case other => other.hashCode.toDouble
         }.toArray
+        (pattern.mkString("|"), index, featureArray)
       }
-    }.toSeq.toDF("array")
+    }.toSeq.toDF("pattern", "id", "array")
 
     // Find the maximum length of any vector
     val maxLength = data.select(max(size($"array"))).as[Int].collect()(0)
@@ -42,11 +45,13 @@ object LSH {
       Vectors.dense((array ++ Array.fill(maxLength - array.length)(0.0)).toArray)
     })
 
-    // Convert arrays to vectors and pad them to ensure consistent length
-    val dataForLSH = data.withColumn("features", toPaddedVector($"array")).drop("array")
+    // Convert arrays to vectors, ensuring all are of consistent length
+    val dataForLSH = data.withColumn("features", toPaddedVector($"array"))
+      .select("id", "pattern", "features")
 
     dataForLSH
-  }
+  } 
+
 
 
   
