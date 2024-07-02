@@ -7,6 +7,8 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.ml.linalg.VectorUDT
 import org.apache.log4j.{Level, Logger}
 import scala.collection.mutable
+import java.nio.file.{Files, Paths}
+import java.io.{ObjectOutputStream, ObjectInputStream, FileInputStream, FileOutputStream}
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -25,11 +27,26 @@ object Main {
       // Directory path to process
       val directory = "../datasets/LDBC/ldbc_inputs1/tmp/"
 
+      // File to save and load patterns and rows
+      val patternsFile = "patterns_and_rows.ser"
+      val mergedPatternsFile = "merged_patterns.parquet"
+
+      // Load existing merged patterns if they exist and print them
+      if (Files.exists(Paths.get(mergedPatternsFile))) {
+        val existingMergedPatterns = spark.read.parquet(mergedPatternsFile)
+        println("Existing Merged Patterns:")
+        existingMergedPatterns.show(false)
+      }
+
+      // Load existing patterns and rows if the file exists
+      val allPatterns = if (Files.exists(Paths.get(patternsFile))) {
+        loadPatternsAndRows(patternsFile)
+      } else {
+        mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]]()
+      }
+
       // Get list of CSV files in the directory
       val files = listFiles(directory)
-
-      // Initialize a map to accumulate all unique patterns and their corresponding rows
-      val allPatterns = mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]]()
 
       // Process each file
       files.foreach { file =>
@@ -43,6 +60,9 @@ object Main {
 
         // Add the patterns and rows of the current file to the map of all patterns
         DataToPattern.addPatternsAndRows(allPatterns, patterns)
+
+        // Save the updated patterns and rows to disk
+        savePatternsAndRows(allPatterns, patternsFile)
       }
 
       // Convert the map to a DataFrame and then to a dataset for LSH
@@ -69,9 +89,45 @@ object Main {
       val uniquePatterns = groupedData.select("grouped_patterns").distinct()
       // uniquePatterns.show(false)
       val mergedPatterns = uniquePatterns.as[Seq[String]].map(normalizeAndMergePatterns)
-      .distinct()
-      .toDF("final_patterns")
+        .distinct()
+        .toDF("final_patterns")
       mergedPatterns.show(false)
+
+      // Load existing merged patterns if they exist
+      val existingMergedPatterns = if (Files.exists(Paths.get(mergedPatternsFile))) {
+        spark.read.parquet(mergedPatternsFile).as[String].collect().toSet
+      } else {
+        Set[String]()
+      }
+
+      // Combine existing merged patterns with new ones, ensuring no duplicates
+      val updatedMergedPatterns = (existingMergedPatterns ++ mergedPatterns.as[String].collect().toSet).toSeq.toDF("final_patterns")
+
+      // Save the updated merged patterns to disk
+      updatedMergedPatterns.write.mode("overwrite").parquet(mergedPatternsFile)
+
+      // Extract ground truth patterns from allPatterns
+      val groundTruthPatterns = allPatterns.keys.map(_.toSet).toList
+
+      // Extract detected patterns from updatedMergedPatterns
+      val detectedPatterns = updatedMergedPatterns.collect().map(row => row.getAs[String]("final_patterns").split("\\|").toSet).toList
+
+      // Print ground truth and detected patterns
+      println("Ground Truth Patterns:")
+      groundTruthPatterns.foreach(println)
+      println("-----------------------")
+      println("Detected Patterns:")
+      detectedPatterns.foreach(println)
+      println("-----------------------")
+
+      // Calculate precision, recall, and F1 score
+      val overallPrecisionValue = Metrics.overallPrecision(groundTruthPatterns, detectedPatterns)
+      val overallRecallValue = Metrics.overallRecall(groundTruthPatterns, detectedPatterns)
+      val f1ScoreValue = Metrics.f1Score(overallPrecisionValue, overallRecallValue)
+
+      println(s"Overall Precision: $overallPrecisionValue")
+      println(s"Overall Recall: $overallRecallValue")
+      println(s"F1 Score: $f1ScoreValue")
 
     } finally {
       spark.stop()
@@ -90,7 +146,21 @@ object Main {
       .option("delimiter", "|")
       .csv(filePath)
   }
+
   def normalizeAndMergePatterns(patterns: Seq[String]): String = {
     patterns.flatMap(_.split("\\|")).toSet.toSeq.mkString("|")
+  }
+
+  def savePatternsAndRows(patterns: mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]], filePath: String): Unit = {
+    val oos = new ObjectOutputStream(new FileOutputStream(filePath))
+    oos.writeObject(patterns)
+    oos.close()
+  }
+
+  def loadPatternsAndRows(filePath: String): mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]] = {
+    val ois = new ObjectInputStream(new FileInputStream(filePath))
+    val patterns = ois.readObject().asInstanceOf[mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]]]
+    ois.close()
+    patterns
   }
 }
