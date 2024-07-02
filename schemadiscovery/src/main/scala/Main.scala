@@ -73,6 +73,29 @@ object Main {
       .toDF("final_patterns")
       mergedPatterns.show(false)
 
+      // Extract ground truth patterns from allPatterns
+      val groundTruthPatterns = allPatterns.keys.map(_.toSet).toList
+
+      // Extract detected patterns from mergedPatterns
+      val detectedPatterns = mergedPatterns.collect().map(row => row.getAs[String]("final_patterns").split("\\|").toSet).toList
+
+      // Print ground truth and detected patterns
+      println("Ground Truth Patterns:")
+      groundTruthPatterns.foreach(println)
+      println("-----------------------")
+      println("Detected Patterns:")
+      detectedPatterns.foreach(println)
+      println("-----------------------")
+
+      // Calculate precision, recall, and F1 score
+      val overallPrecisionValue = Metrics.overallPrecision(groundTruthPatterns, detectedPatterns)
+      val overallRecallValue = Metrics.overallRecall(groundTruthPatterns, detectedPatterns)
+      val f1ScoreValue = Metrics.f1Score(overallPrecisionValue, overallRecallValue)
+
+      println(s"Overall Precision: $overallPrecisionValue")
+      println(s"Overall Recall: $overallRecallValue")
+      println(s"F1 Score: $f1ScoreValue")
+
     } finally {
       spark.stop()
     }
