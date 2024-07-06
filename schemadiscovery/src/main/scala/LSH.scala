@@ -17,7 +17,7 @@ object LSH {
     brp.fit(data)
   }
 
-  def prepareDataForLSH(allPatterns: mutable.HashMap[Pattern, List[Map[String, Any]]], spark: SparkSession): DataFrame = {
+  def prepareDataForLSH(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]], spark: SparkSession): DataFrame = {
     import spark.implicits._
 
     // Flatten the map into a sequence and convert to DataFrame
