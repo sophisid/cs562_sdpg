@@ -178,6 +178,9 @@ def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
       val nodeLabel = extractNodeLabel(pattern)
       val properties = extractProperties(pattern)
 
+      // println(s"Extracted Node Label: $nodeLabel")
+      // println(s"Extracted Properties: ${properties.mkString(", ")}")
+
       println(s"Node:")
       println(s"  - Label: $nodeLabel")
       if (properties.nonEmpty) {
@@ -191,18 +194,29 @@ def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
 }
 
 def extractNodeLabel(pattern: String): String = {
-  val labelRegex = """Pattern\(([^,]+),""".r
-  pattern match {
-    case labelRegex(label) => label
-    case _ => "Unknown"
+  // Assuming the pattern starts with "Pattern(" and ends before the first comma
+  val start = pattern.indexOf('(') + 1
+  val end = pattern.indexOf(',')
+  if (start >= 0 && end > start) {
+    pattern.substring(start, end).trim
+  } else {
+    "Unknown"
   }
 }
 
 def extractProperties(pattern: String): Seq[String] = {
-  val propertiesRegex = """,Set\(([^)]+)\),Set""".r
-  pattern match {
-    case propertiesRegex(props) => props.split(", ").toSeq
-    case _ => Seq.empty
+  // Assuming properties are between "Set(" and the first closing parenthesis after that
+  val setStart = pattern.indexOf("Set(")
+  val setEnd = pattern.indexOf(')', setStart)
+  if (setStart >= 0 && setEnd > setStart) {
+    val propertiesString = pattern.substring(setStart + 4, setEnd)
+    if (propertiesString.nonEmpty) {
+      propertiesString.split(", ").map(_.trim).toSeq
+    } else {
+      Seq.empty
+    }
+  } else {
+    Seq.empty
   }
 }
 
