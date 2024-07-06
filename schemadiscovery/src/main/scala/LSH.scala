@@ -1,19 +1,13 @@
-// LSH
-import org.apache.spark.ml.linalg.Vectors
 import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, BucketedRandomProjectionLSHModel}
-import org.apache.spark.sql.{SparkSession, DataFrame, Row}
+import org.apache.spark.ml.linalg.Vectors
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types.{StructType, StructField, DataTypes}
-import org.apache.spark.rdd.RDD
-import org.apache.spark.ml.linalg.VectorUDT
-import org.apache.log4j.{Level, Logger}
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import scala.collection.mutable
+import com.models.Pattern
 
 object LSH {
 
-    def setupLSH(data: DataFrame): BucketedRandomProjectionLSHModel = {
-    // val bucketLength = averageVariance * 0.5 // Example dynamic calculation
-    // val numHashTables = (10 / averageVariance).toInt.max(1) // Ensure at least one hash table
+  def setupLSH(data: DataFrame): BucketedRandomProjectionLSHModel = {
     val brp = new BucketedRandomProjectionLSH()
       .setBucketLength(2.0)
       .setNumHashTables(10)
@@ -23,17 +17,20 @@ object LSH {
     brp.fit(data)
   }
 
- def prepareDataForLSH(allPatterns: mutable.Map[Seq[String], mutable.ListBuffer[Seq[Any]]], spark: SparkSession): DataFrame = {
+  def prepareDataForLSH(allPatterns: mutable.HashMap[Pattern, List[Map[String, Any]]], spark: SparkSession): DataFrame = {
     import spark.implicits._
 
     // Flatten the map into a sequence and convert to DataFrame
-    val data = allPatterns.flatMap { case (pattern, listBuffer) =>
-      listBuffer.zipWithIndex.map { case (row, index) =>
-        val featureArray = row.map {
-          case num: Number => num.doubleValue()
-          case other => other.hashCode.toDouble
+    val data = allPatterns.flatMap { case (pattern, list) =>
+      list.zipWithIndex.map { case (row, index) =>
+        val featureArray = pattern.properties.map { property =>
+          row.get(property) match {
+            case Some(num: Number) => num.doubleValue()
+            case Some(other) => other.hashCode.toDouble
+            case None => 0.0
+          }
         }.toArray
-        (pattern.mkString("|"), index, featureArray)
+        (pattern.toString, index, featureArray)
       }
     }.toSeq.toDF("pattern", "id", "array")
 
@@ -50,9 +47,5 @@ object LSH {
       .select("id", "pattern", "features")
 
     dataForLSH
-  } 
-
-
-
-  
+  }
 }
