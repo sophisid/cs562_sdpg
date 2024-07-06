@@ -9,6 +9,8 @@ import java.nio.file.{Files, Paths}
 import java.io.{ObjectOutputStream, ObjectInputStream, FileInputStream, FileOutputStream}
 import java.security.MessageDigest
 import com.models.Pattern
+import java.time.format.DateTimeFormatter
+import java.time.LocalDateTime
 
 object Main {
 
@@ -23,6 +25,7 @@ object Main {
     Logger.getLogger("akka").setLevel(Level.ERROR)
 
     import spark.implicits._
+    val startTime = System.nanoTime()
 
     try {
       // Directory path to process
@@ -68,6 +71,8 @@ object Main {
 
       DataToPattern.printSortedPatterns(allPatterns)
 
+      val lshStartTime = System.nanoTime()
+
       // Convert the map to a DataFrame and then to a dataset for LSH
       val dataForLSH = LSH.prepareDataForLSH(allPatterns, spark)
 
@@ -96,6 +101,9 @@ object Main {
         .toDF("final_patterns")
       // mergedPatterns.show(false)
 
+      val lshEndTime = System.nanoTime()
+      val lshDuration = (lshEndTime - lshStartTime) / 1e9d
+
       // Load existing merged patterns if they exist
       val existingMergedPatterns = if (Files.exists(Paths.get(mergedPatternsFile))) {
         spark.read.parquet(mergedPatternsFile).as[String].collect().toSet
@@ -108,6 +116,12 @@ object Main {
 
       // Save the updated merged patterns to disk
       updatedMergedPatterns.write.mode("overwrite").parquet(mergedPatternsFile)
+
+      println(s"LSH running time: $lshDuration seconds")
+
+      val endTime = System.nanoTime()
+      val totalDuration = (endTime - startTime) / 1e9d
+      println(s"Total running time: $totalDuration seconds")
 
       // Print final patterns in the desired format
       printFinalPatterns(updatedMergedPatterns)
