@@ -38,8 +38,8 @@ object Main {
       // Load existing merged patterns if they exist and print them
       if (Files.exists(Paths.get(mergedPatternsFile))) {
         val existingMergedPatterns = spark.read.parquet(mergedPatternsFile)
-        println("Existing Merged Patterns:")
-        existingMergedPatterns.show(false)
+        // println("Existing Merged Patterns:")
+        // existingMergedPatterns.show(false)
       }
 
       // Load existing patterns and rows if the file exists
@@ -69,7 +69,7 @@ object Main {
         savePatternsAndRows(allPatterns, patternsFile)
       }
 
-      DataToPattern.printSortedPatterns(allPatterns)
+      // DataToPattern.printSortedPatterns(allPatterns)
 
       val lshStartTime = System.nanoTime()
 
@@ -125,6 +125,36 @@ object Main {
 
       // Print final patterns in the desired format
       printFinalPatterns(updatedMergedPatterns)
+      
+      // Compute and print metrics
+      val groundTruth = extractPatternsFromAllPatterns(allPatterns)
+      val detectedPatterns = extractPatternsFromMergedPatterns(updatedMergedPatterns)
+      // val groundTruth = Set(
+      //   Set("birthday", "locationIP", "lastName", "firstName", "creationDate", "gender"),
+      //   Set("birthday", "locationIP", "firstName", "browserUsed", "creationDate", "gender"),
+      //   Set("birthday", "locationIP", "lastName", "firstName", "browserUsed", "creationDate"),
+      //   Set("birthday", "locationIP", "lastName", "firstName")
+      //   // Add all other ground truth patterns here
+      // )
+
+      // val detectedPatterns = Set(
+      //   Set("birthday", "lastName", "firstName", "creationDate", "gender"),
+      //   Set("birthday", "locationIP", "firstName", "browserUsed", "creationDate", "gender"),
+      //   Set("birthday", "locationIP", "lastName", "firstName", "browserUsed", "creationDate"),
+      //   Set("birthday", "locationIP", "lastName", "firstName", "gender"),
+      //    Set("birthday", "locationIP", "lastName", "firstName", "tmp")
+      // )
+
+      println("\nGround truth Patterns:")
+      groundTruth.foreach(pattern => println(pattern.mkString(", ")))
+
+      println("-------------------------------------------------------------------")
+
+      println("\nDetected Patterns:")
+      detectedPatterns.foreach(pattern => println(pattern.mkString(", ")))
+
+      // computeAndPrintMetrics(groundTruth.toList, detectedPatterns.toList)
+      computeAndPrintMetrics(groundTruth, detectedPatterns)
 
     } finally {
       spark.stop()
@@ -168,19 +198,10 @@ def loadPatternsAndRows(filePath: String): mutable.LinkedHashMap[Pattern, List[M
   }
 }
 
-
-
 def convertToLinkedHashMap(hashMap: mutable.Map[Pattern, List[Map[String, Any]]]): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
   val linkedHashMap = new mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]()
   hashMap.foreach { case (k, v) => linkedHashMap.put(k, v) }
   linkedHashMap
-}
-
-
-  def hashId(id: String): String = {
-    val md = MessageDigest.getInstance("SHA-256")
-    val hash = md.digest(id.getBytes("UTF-8"))
-    hash.map("%02x".format(_)).mkString
   }
 
 def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
@@ -202,8 +223,8 @@ def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
       } else {
         println(s"  - Properties: {}")
       }
+      println(" ")
     }
-    println()
   }
 }
 
@@ -233,6 +254,33 @@ def extractProperties(pattern: String): Seq[String] = {
     Seq.empty
   }
 }
+
+  def extractPatternsFromAllPatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): List[Set[String]] = {
+    allPatterns.keys.map(pattern => pattern.toString.split('|').map(_.trim).toSet).toList
+  }
+
+
+  def extractPatternsFromMergedPatterns(mergedPatterns: DataFrame): List[Set[String]] = {
+    val uniquePatterns = mergedPatterns.collect().flatMap { row =>
+      row.getString(0).split('|').map(_.trim).toSet
+    }.toSet
+
+    uniquePatterns.map(Set(_)).toList
+  }
+
+
+
+  def computeAndPrintMetrics(groundTruth: List[Set[String]], detectedPatterns: List[Set[String]]): Unit = {
+    val precision = Metrics.overallPrecision(groundTruth, detectedPatterns)
+    val recall = Metrics.overallRecall(groundTruth, detectedPatterns)
+    val f1 = Metrics.f1Score(precision, recall)
+
+    println(" ")
+    println("Metrics:")
+    println(s"Precision: $precision")
+    println(s"Recall: $recall")
+    println(s"F1 Score: $f1")
+  }
 
 
 }
