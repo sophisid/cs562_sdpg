@@ -69,7 +69,9 @@ object Main {
         savePatternsAndRows(allPatterns, patternsFile)
       }
 
-      // DataToPattern.printSortedPatterns(allPatterns)
+      // Detect edges after processing all files
+      val updatedPatterns = DataToPattern.detectAndMergeEdges(allPatterns)
+      DataToPattern.printSortedPatterns(allPatterns)
 
       val lshStartTime = System.nanoTime()
 

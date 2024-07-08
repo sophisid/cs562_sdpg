@@ -9,8 +9,8 @@ object DataToPattern {
   def extractPatterns(df: DataFrame): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
     val patterns = new mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]()
 
-    // Get the name of the first column as node label
-    val nodeLabel = df.schema.fields.head.name
+    // Get the simplified name of the first column as node label
+    val nodeLabel = simplifyLabel(df.schema.fields.head.name)
 
     df.collect().foreach { row =>
       // Use the node label (name of the first column)
@@ -27,23 +27,23 @@ object DataToPattern {
         row.getAs[Any](field.name) != null
       }.map(_.name).toSet
 
-      // Extract edges based on columns that start with "edge_"
-      val edges = row.schema.fields.tail.filter(_.name.startsWith("edge_")).map { field =>
-        val edgeType = field.name.stripPrefix("edge_")
-        val connectedNode = row.getAs[Any](field.name) match {
-          case s: String => s
-          case i: Int => i.toString
-          case _ => throw new IllegalArgumentException("Unsupported data type for connected node")
-        }
-        (edgeType, connectedNode)
-      }.toSet
+      // // Extract edges based on columns that start with "edge_"
+      // val edges = row.schema.fields.tail.filter(_.name.startsWith("edge_")).map { field =>
+      //   val edgeType = field.name.stripPrefix("edge_")
+      //   val connectedNode = row.getAs[Any](field.name) match {
+      //     case s: String => s
+      //     case i: Int => i.toString
+      //     case _ => throw new IllegalArgumentException("Unsupported data type for connected node")
+      //   }
+      //   (edgeType, connectedNode)
+      // }.toSet
 
       // Extract instance as a LinkedHashMap to maintain insertion order
       val instance = mutable.LinkedHashMap(idField.name -> id) ++ row.schema.fields.tail.map { field =>
         field.name -> row.getAs[Any](field.name)
       }.filterNot { case (_, value) => value == null } + ("uri" -> uri)
 
-      val pattern = Pattern(label, properties, edges)
+      val pattern = Pattern(label, properties, Set.empty)
 
       // Add the new instance to the corresponding pattern
       patterns.updateWith(pattern) {
@@ -53,6 +53,15 @@ object DataToPattern {
     }
 
     patterns
+  }
+
+  // Function to simplify labels
+  def simplifyLabel(label: String): String = {
+    val pattern = ".*\\((.*?)\\).*".r
+    label match {
+      case pattern(simplifiedLabel) => simplifiedLabel
+      case _ => label.split("\\.").head // Default case, split by dot and take the first part
+    }
   }
 
   def hashId(id: String): String = {
@@ -102,5 +111,43 @@ object DataToPattern {
       }
       println()
     }
+  }
+
+  // not correct
+  def detectAndMergeEdges(patterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
+    val edgePatterns = patterns.filter { case (pattern, _) =>
+      pattern.properties.size == 1 && pattern.properties.head.contains(":END_ID(")
+    }
+
+    edgePatterns.foreach { case (edgePattern, edgeInstances) =>
+      val targetLabel = simplifyLabel(edgePattern.properties.head)
+      val targetPatternOption = patterns.keys.find(p => p.nodeLabel == targetLabel)
+
+      targetPatternOption.foreach { targetPattern =>
+        val targetInstances = patterns(targetPattern)
+        val updatedTargetInstances = targetInstances.flatMap { targetInstance =>
+          val matchingEdgeInstances = edgeInstances.filter { edgeInstance =>
+            edgeInstance.values.toSet.subsetOf(targetInstance.values.toSet)
+          }
+
+          if (matchingEdgeInstances.nonEmpty) {
+            matchingEdgeInstances.foreach { edgeInstance =>
+              patterns(edgePattern) = patterns(edgePattern).filterNot(_ == edgeInstance)
+            }
+            Some(targetInstance)
+          } else {
+            Some(targetInstance)
+          }
+        }
+
+        patterns.update(targetPattern, updatedTargetInstances)
+      }
+
+      if (patterns(edgePattern).isEmpty) {
+        patterns -= edgePattern
+      }
+    }
+
+    patterns
   }
 }
