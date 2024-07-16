@@ -17,7 +17,8 @@ lazy val root = (project in file("."))
       munit % Test,
       sparkCore,   
       sparkSql,
-      mllib
+      mllib,
+      "org.neo4j.driver" % "neo4j-java-driver" % "4.4.10" // Added Neo4j driver dependency
     ),
 
     // Set Java options for running applications

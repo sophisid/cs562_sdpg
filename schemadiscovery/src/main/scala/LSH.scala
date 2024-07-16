@@ -15,7 +15,7 @@ object LSH {
     // val bucketLength = averageVariance * 0.5 // Example dynamic calculation
     // val numHashTables = (10 / averageVariance).toInt.max(1) // Ensure at least one hash table
     val brp = new BucketedRandomProjectionLSH()
-      .setBucketLength(2.0)
+      .setBucketLength(10.0)
       .setNumHashTables(10)
       .setInputCol("normFeatures")
       .setOutputCol("hashes")

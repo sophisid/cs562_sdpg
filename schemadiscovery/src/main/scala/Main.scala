@@ -38,6 +38,9 @@ object Main {
         val noiseLevel = 0.1 // 10% noise
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
+        // Insert the noisy dataset into Neo4j
+        CSVToNeo4j.insertData(noisyDataset, "Person")
+
         // Detect patterns in the dataset
         val patterns = DataToPattern.detectPatterns(noisyDataset)
 
@@ -113,7 +116,9 @@ object Main {
       .option("delimiter", "|")
       .csv(filePath)
   }
+  
   def normalizeAndMergePatterns(patterns: Seq[String]): String = {
     patterns.flatMap(_.split("\\|")).toSet.toSeq.mkString("|")
   }
+  
 }
