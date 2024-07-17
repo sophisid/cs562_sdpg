@@ -11,7 +11,7 @@ object LSH {
     val brp = new BucketedRandomProjectionLSH()
       .setBucketLength(2.0)
       .setNumHashTables(10)
-      .setInputCol("normFeatures")
+      .setInputCol("features")
       .setOutputCol("hashes")
 
     brp.fit(data)
@@ -23,7 +23,7 @@ object LSH {
     // Flatten the map into a sequence and convert to DataFrame
     val data = allPatterns.flatMap { case (pattern, list) =>
       list.zipWithIndex.map { case (row, index) =>
-        val featureArray = pattern.properties.map { property =>
+        val featureArray = pattern.properties.keys.map { property =>
           row.get(property) match {
             case Some(num: Number) => num.doubleValue()
             case Some(other) => other.hashCode.toDouble

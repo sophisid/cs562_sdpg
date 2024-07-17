@@ -38,8 +38,6 @@ object Main {
       // Load existing merged patterns if they exist and print them
       if (Files.exists(Paths.get(mergedPatternsFile))) {
         val existingMergedPatterns = spark.read.parquet(mergedPatternsFile)
-        // println("Existing Merged Patterns:")
-        // existingMergedPatterns.show(false)
       }
 
       // Load existing patterns and rows if the file exists
@@ -56,7 +54,7 @@ object Main {
       files.foreach { file =>
         println(s"Processing file: $file")
         val dataset = loadAndProcessFile(spark, file)
-        val noiseLevel = 0.1 // 10% noise
+        val noiseLevel = 0.00001 // 10% noise
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
         // Detect patterns in the dataset
@@ -68,8 +66,6 @@ object Main {
         // Save the updated patterns and rows to disk
         savePatternsAndRows(allPatterns, patternsFile)
       }
-
-      // DataToPattern.printSortedPatterns(allPatterns)
 
       val lshStartTime = System.nanoTime()
 
@@ -85,7 +81,6 @@ object Main {
       val normalizedData = normalizer.transform(dataForLSH)
       val model = LSH.setupLSH(normalizedData)
       val hashedData = model.transform(normalizedData)
-      // hashedData.show(false)
 
       // Group data by hashes and collect lists of ids and patterns
       val groupedData = hashedData.groupBy("hashes")
@@ -95,11 +90,9 @@ object Main {
         )
 
       val uniquePatterns = groupedData.select("grouped_patterns").distinct()
-      // uniquePatterns.show(false)
       val mergedPatterns = uniquePatterns.as[Seq[String]].map(normalizeAndMergePatterns)
         .distinct()
         .toDF("final_patterns")
-      // mergedPatterns.show(false)
 
       val lshEndTime = System.nanoTime()
       val lshDuration = (lshEndTime - lshStartTime) / 1e9d
@@ -125,25 +118,10 @@ object Main {
 
       // Print final patterns in the desired format
       printFinalPatterns(updatedMergedPatterns)
-      
+
       // Compute and print metrics
       val groundTruth = extractPatternsFromAllPatterns(allPatterns)
       val detectedPatterns = extractPatternsFromMergedPatterns(updatedMergedPatterns)
-      // val groundTruth = Set(
-      //   Set("birthday", "locationIP", "lastName", "firstName", "creationDate", "gender"),
-      //   Set("birthday", "locationIP", "firstName", "browserUsed", "creationDate", "gender"),
-      //   Set("birthday", "locationIP", "lastName", "firstName", "browserUsed", "creationDate"),
-      //   Set("birthday", "locationIP", "lastName", "firstName")
-      //   // Add all other ground truth patterns here
-      // )
-
-      // val detectedPatterns = Set(
-      //   Set("birthday", "lastName", "firstName", "creationDate", "gender"),
-      //   Set("birthday", "locationIP", "firstName", "browserUsed", "creationDate", "gender"),
-      //   Set("birthday", "locationIP", "lastName", "firstName", "browserUsed", "creationDate"),
-      //   Set("birthday", "locationIP", "lastName", "firstName", "gender"),
-      //    Set("birthday", "locationIP", "lastName", "firstName", "tmp")
-      // )
 
       println("\nGround truth Patterns:")
       groundTruth.foreach(pattern => println(pattern.mkString(", ")))
@@ -153,13 +131,31 @@ object Main {
       println("\nDetected Patterns:")
       detectedPatterns.foreach(pattern => println(pattern.mkString(", ")))
 
-      // computeAndPrintMetrics(groundTruth.toList, detectedPatterns.toList)
       computeAndPrintMetrics(groundTruth, detectedPatterns)
+
+      // Find optional properties and create updated patterns
+      val updatedPatterns = findOptionalPropertiesAndCreatePatterns(allPatterns)
+      updatedPatterns.foreach { pattern =>
+        println(s"Pattern: ${pattern.nodeLabel}")
+        println(s"Properties: ${pattern.properties.mkString(", ")}")
+        println(s"Edges: ${pattern.edges.mkString(", ")}")
+      }
+
+      // Infer types
+      files.foreach { file =>
+        val dataset = loadAndProcessFile(spark, file)
+        val types = inferTypes(spark, dataset)
+        println(s"\nInferred Types for $file:")
+        types.foreach { case (property, propertyType) =>
+          println(s"$property: $propertyType")
+        }
+      }
 
     } finally {
       spark.stop()
     }
   }
+
 
   def listFiles(directory: String): List[String] = {
     val dir = new java.io.File(directory)
@@ -213,8 +209,8 @@ def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
       val nodeLabel = extractNodeLabel(pattern)
       val properties = extractProperties(pattern)
 
-      // println(s"Extracted Node Label: $nodeLabel")
-      // println(s"Extracted Properties: ${properties.mkString(", ")}")
+      println(s"Extracted Node Label: $nodeLabel")
+      println(s"Extracted Properties: ${properties.mkString(", ")}")
 
       println(s"Node:")
       println(s"  - Label: $nodeLabel")
@@ -228,25 +224,26 @@ def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
   }
 }
 
+
 def extractNodeLabel(pattern: String): String = {
-  // Assuming the pattern starts with "Pattern(" and ends before the first comma
-  val start = pattern.indexOf('(') + 1
-  val end = pattern.indexOf(',')
-  if (start >= 0 && end > start) {
-    pattern.substring(start, end).trim
-  } else {
-    "Unknown"
+  val idPattern = "id:ID\\(([^)]+)\\)".r
+  idPattern.findFirstMatchIn(pattern) match {
+    case Some(m) => m.group(1)
+    case None => "Unknown"
   }
 }
 
+
 def extractProperties(pattern: String): Seq[String] = {
-  // Assuming properties are between "Set(" and the first closing parenthesis after that
-  val setStart = pattern.indexOf("Set(")
-  val setEnd = pattern.indexOf(')', setStart)
-  if (setStart >= 0 && setEnd > setStart) {
-    val propertiesString = pattern.substring(setStart + 4, setEnd)
+  val mapStart = pattern.indexOf("HashMap(") match {
+    case -1 => pattern.indexOf("Map(")
+    case idx => idx
+  }
+  val mapEnd = pattern.indexOf(')', mapStart)
+  if (mapStart > -1 && mapEnd > mapStart) {
+    val propertiesString = pattern.substring(mapStart + 7, mapEnd) // +7 to skip "HashMap(" or "Map("
     if (propertiesString.nonEmpty) {
-      propertiesString.split(", ").map(_.trim).toSeq
+      propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
     } else {
       Seq.empty
     }
@@ -254,6 +251,8 @@ def extractProperties(pattern: String): Seq[String] = {
     Seq.empty
   }
 }
+
+
 
   def extractPatternsFromAllPatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): List[Set[String]] = {
     allPatterns.keys.map(pattern => pattern.toString.split('|').map(_.trim).toSet).toList
@@ -280,6 +279,52 @@ def extractProperties(pattern: String): Seq[String] = {
     println(s"Precision: $precision")
     println(s"Recall: $recall")
     println(s"F1 Score: $f1")
+  }
+  def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): Seq[Pattern] = {
+    val propertyCounts = mutable.Map[String, mutable.Map[String, Int]]()
+    val totalCounts = mutable.Map[String, Int]()
+
+    allPatterns.foreach { case (pattern, instances) =>
+      val nodeLabel = pattern.nodeLabel
+      totalCounts(nodeLabel) = totalCounts.getOrElse(nodeLabel, 0) + instances.size
+      instances.foreach { instance =>
+        instance.keys.foreach { property =>
+          if (!propertyCounts.contains(nodeLabel)) {
+            propertyCounts(nodeLabel) = mutable.Map[String, Int]()
+          }
+          val counts = propertyCounts(nodeLabel)
+          counts(property) = counts.getOrElse(property, 0) + 1
+        }
+      }
+    }
+
+    propertyCounts.map { case (nodeLabel, counts) =>
+      val totalInstances = totalCounts(nodeLabel)
+      val propertiesWithOptionality = counts.map { case (property, count) =>
+        property -> (count < totalInstances)
+      }.toMap
+
+      Pattern(nodeLabel, propertiesWithOptionality, allPatterns.keys.find(_.nodeLabel == nodeLabel).map(_.edges).getOrElse(Set.empty))
+    }.toSeq
+  }
+
+  def inferTypes(spark: SparkSession, dataset: DataFrame): Map[String, String] = {
+    val inferredSchema = dataset.schema.fields.map { field =>
+      val columnName = field.name
+      val sampleData = dataset.select(col(columnName)).take(1000).map(_.get(0))
+      val inferredType = sampleData.collect {
+        case v if v.isInstanceOf[Int] => "INT"
+        case v if v.isInstanceOf[Long] => "LONG"
+        case v if v.isInstanceOf[Double] => "DOUBLE"
+        case v if v.isInstanceOf[Float] => "FLOAT"
+        case v if v.isInstanceOf[Boolean] => "BOOLEAN"
+        case _ => "STRING"
+      }.groupBy(identity).maxBy(_._2.size)._1 // Most frequent type
+
+      columnName -> inferredType
+    }.toMap
+
+    inferredSchema
   }
 
 

@@ -43,7 +43,10 @@ object DataToPattern {
         field.name -> row.getAs[Any](field.name)
       }.filterNot { case (_, value) => value == null } + ("uri" -> uri)
 
-      val pattern = Pattern(label, properties, edges)
+      // Determine if properties are optional
+      val propertiesWithOptionality = properties.map(prop => prop -> true).toMap
+
+      val pattern = Pattern(label, propertiesWithOptionality, edges)
 
       // Add the new instance to the corresponding pattern
       patterns.updateWith(pattern) {
