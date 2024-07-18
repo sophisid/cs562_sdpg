@@ -14,6 +14,8 @@ import java.time.LocalDateTime
 
 object Main {
 
+  val predefinedLabels = List("Person", "Place", "Event", "Organization", "Location", "Product", "Company", "City", "Country")
+
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder()
       .appName("Schema Discovery for Property Graphs")
@@ -54,7 +56,7 @@ object Main {
       files.foreach { file =>
         println(s"Processing file: $file")
         val dataset = loadAndProcessFile(spark, file)
-        val noiseLevel = 0.00001 // 10% noise
+        val noiseLevel = 0.00001 // Minimal noise
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
         // Detect patterns in the dataset
@@ -156,7 +158,6 @@ object Main {
     }
   }
 
-
   def listFiles(directory: String): List[String] = {
     val dir = new java.io.File(directory)
     dir.listFiles.filter(_.isFile).map(_.getAbsolutePath).toList
@@ -180,84 +181,107 @@ object Main {
     oos.close()
   }
 
-def loadPatternsAndRows(filePath: String): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
-  val ois = new ObjectInputStream(new FileInputStream(filePath))
-  val loadedObject = ois.readObject()
-  ois.close()
+  def loadPatternsAndRows(filePath: String): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
+    val ois = new ObjectInputStream(new FileInputStream(filePath))
+    val loadedObject = ois.readObject()
+    ois.close()
 
-  loadedObject match {
-    case map: mutable.Map[_, _] =>
-      val hashMap = map.asInstanceOf[mutable.Map[Pattern, List[Map[String, Any]]]]
-      convertToLinkedHashMap(hashMap)
-    case _ =>
-      throw new ClassCastException("Loaded object is not a Map")
-  }
-}
-
-def convertToLinkedHashMap(hashMap: mutable.Map[Pattern, List[Map[String, Any]]]): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
-  val linkedHashMap = new mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]()
-  hashMap.foreach { case (k, v) => linkedHashMap.put(k, v) }
-  linkedHashMap
-  }
-
-def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
-  mergedPatterns.collect().foreach { row =>
-    val patterns = row.getString(0).split('|')
-    patterns.foreach { pattern =>
-      println(s"Raw pattern: $pattern") // Print the raw pattern for debugging
-
-      val nodeLabel = extractNodeLabel(pattern)
-      val properties = extractProperties(pattern)
-
-      println(s"Extracted Node Label: $nodeLabel")
-      println(s"Extracted Properties: ${properties.mkString(", ")}")
-
-      println(s"Node:")
-      println(s"  - Label: $nodeLabel")
-      if (properties.nonEmpty) {
-        println(s"  - Properties: {${properties.map(prop => s"""$prop: "STRING"""").mkString(", ")}}")
-      } else {
-        println(s"  - Properties: {}")
-      }
-      println(" ")
+    loadedObject match {
+      case map: mutable.Map[_, _] =>
+        val hashMap = map.asInstanceOf[mutable.Map[Pattern, List[Map[String, Any]]]]
+        convertToLinkedHashMap(hashMap)
+      case _ =>
+        throw new ClassCastException("Loaded object is not a Map")
     }
   }
-}
 
-
-def extractNodeLabel(pattern: String): String = {
-  val idPattern = "id:ID\\(([^)]+)\\)".r
-  idPattern.findFirstMatchIn(pattern) match {
-    case Some(m) => m.group(1)
-    case None => "Unknown"
+  def convertToLinkedHashMap(hashMap: mutable.Map[Pattern, List[Map[String, Any]]]): mutable.LinkedHashMap[Pattern, List[Map[String, Any]]] = {
+    val linkedHashMap = new mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]()
+    hashMap.foreach { case (k, v) => linkedHashMap.put(k, v) }
+    linkedHashMap
   }
-}
 
+  def printFinalPatterns(mergedPatterns: DataFrame): Unit = {
+    mergedPatterns.collect().foreach { row =>
+      val patterns = row.getString(0).split('|')
+      patterns.foreach { pattern =>
+        println(s"Raw pattern: $pattern") // Print the raw pattern for debugging
 
-def extractProperties(pattern: String): Seq[String] = {
-  val mapStart = pattern.indexOf("HashMap(") match {
-    case -1 => pattern.indexOf("Map(")
-    case idx => idx
+        val nodeLabel = extractNodeLabelFromPattern(pattern, predefinedLabels)
+        val properties = extractPropertiesFromPattern(pattern)
+        val edges = extractEdgesFromPattern(pattern)
+
+        println(s"Extracted Node Label: $nodeLabel")
+        println(s"Extracted Properties: ${properties.mkString(", ")}")
+        println(s"Extracted Edges: ${edges.mkString(", ")}")
+
+        println(s"Node:")
+        println(s"  - Label: $nodeLabel")
+        if (properties.nonEmpty) {
+          println(s"  - Properties: {${properties.map(prop => s"""$prop: "STRING"""").mkString(", ")}}")
+        } else {
+          println(s"  - Properties: {}")
+        }
+
+        if (edges.nonEmpty) {
+          println(s"  - Edges: {${edges.map(edge => s"""(${edge._1} -> ${edge._2})""").mkString(", ")}}")
+        } else {
+          println(s"  - Edges: {}")
+        }
+
+        println(" ")
+      }
+    }
   }
-  val mapEnd = pattern.indexOf(')', mapStart)
-  if (mapStart > -1 && mapEnd > mapStart) {
-    val propertiesString = pattern.substring(mapStart + 7, mapEnd) // +7 to skip "HashMap(" or "Map("
-    if (propertiesString.nonEmpty) {
-      propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
+
+  def extractNodeLabelFromPattern(pattern: String, predefinedLabels: List[String]): String = {
+    // Check if the pattern contains any of the predefined labels
+    predefinedLabels.find(label => pattern.toLowerCase.contains(label.toLowerCase)) match {
+      case Some(matchedLabel) => matchedLabel
+      case None => "UnknownNodeLabel"
+    }
+  }
+
+
+  def extractPropertiesFromPattern(pattern: String): Seq[String] = {
+    val mapStart = pattern.indexOf("HashMap(") match {
+      case -1 => pattern.indexOf("Map(")
+      case idx => idx
+    }
+    val mapEnd = pattern.indexOf(')', mapStart)
+    if (mapStart > -1 && mapEnd > mapStart) {
+      val propertiesString = pattern.substring(mapStart + 7, mapEnd) // +7 to skip "HashMap(" or "Map("
+      if (propertiesString.nonEmpty) {
+        propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
+      } else {
+        Seq.empty
+      }
     } else {
       Seq.empty
     }
-  } else {
-    Seq.empty
   }
-}
 
-
+  def extractEdgesFromPattern(pattern: String): Set[(String, String)] = {
+    val setStart = pattern.indexOf("Set(")
+    val setEnd = pattern.indexOf(')', setStart)
+    if (setStart > -1 && setEnd > setStart) {
+      val edgesString = pattern.substring(setStart + 4, setEnd) // +4 to skip "Set("
+      if (edgesString.nonEmpty) {
+        edgesString.split(", ").map { edge =>
+          val edgeTuple = edge.stripPrefix("(").stripSuffix(")").split("->").map(_.trim)
+          if (edgeTuple.length == 2) (edgeTuple(0), edgeTuple(1)) else ("", "")
+        }.filterNot(edge => edge._1.isEmpty && edge._2.isEmpty).toSet
+      } else {
+        Set.empty
+      }
+    } else {
+      Set.empty
+    }
+  }
 
   def extractPatternsFromAllPatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): List[Set[String]] = {
     allPatterns.keys.map(pattern => pattern.toString.split('|').map(_.trim).toSet).toList
   }
-
 
   def extractPatternsFromMergedPatterns(mergedPatterns: DataFrame): List[Set[String]] = {
     val uniquePatterns = mergedPatterns.collect().flatMap { row =>
@@ -266,8 +290,6 @@ def extractProperties(pattern: String): Seq[String] = {
 
     uniquePatterns.map(Set(_)).toList
   }
-
-
 
   def computeAndPrintMetrics(groundTruth: List[Set[String]], detectedPatterns: List[Set[String]]): Unit = {
     val precision = Metrics.overallPrecision(groundTruth, detectedPatterns)
@@ -280,38 +302,42 @@ def extractProperties(pattern: String): Seq[String] = {
     println(s"Recall: $recall")
     println(s"F1 Score: $f1")
   }
-  def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): Seq[Pattern] = {
-    val propertyCounts = mutable.Map[String, mutable.Map[String, Int]]()
-    val totalCounts = mutable.Map[String, Int]()
 
-    allPatterns.foreach { case (pattern, instances) =>
-      val nodeLabel = pattern.nodeLabel
-      totalCounts(nodeLabel) = totalCounts.getOrElse(nodeLabel, 0) + instances.size
-      instances.foreach { instance =>
-        instance.keys.foreach { property =>
-          if (!propertyCounts.contains(nodeLabel)) {
-            propertyCounts(nodeLabel) = mutable.Map[String, Int]()
-          }
-          val counts = propertyCounts(nodeLabel)
-          counts(property) = counts.getOrElse(property, 0) + 1
+def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): Seq[Pattern] = {
+  val propertyCounts = mutable.Map[String, mutable.Map[String, Int]]()
+  val totalCounts = mutable.Map[String, Int]()
+
+  allPatterns.foreach { case (pattern, instances) =>
+    val nodeLabel = pattern.nodeLabel
+    totalCounts(nodeLabel) = totalCounts.getOrElse(nodeLabel, 0) + instances.size
+    instances.foreach { instance =>
+      instance.keys.foreach { property =>
+        if (!propertyCounts.contains(nodeLabel)) {
+          propertyCounts(nodeLabel) = mutable.Map[String, Int]()
         }
+        val counts = propertyCounts(nodeLabel)
+        counts(property) = counts.getOrElse(property, 0) + 1
       }
     }
-
-    propertyCounts.map { case (nodeLabel, counts) =>
-      val totalInstances = totalCounts(nodeLabel)
-      val propertiesWithOptionality = counts.map { case (property, count) =>
-        property -> (count < totalInstances)
-      }.toMap
-
-      Pattern(nodeLabel, propertiesWithOptionality, allPatterns.keys.find(_.nodeLabel == nodeLabel).map(_.edges).getOrElse(Set.empty))
-    }.toSeq
   }
 
+  propertyCounts.map { case (nodeLabel, counts) =>
+    val totalInstances = totalCounts(nodeLabel)
+    val propertiesWithOptionality = counts.map { case (property, count) =>
+      property -> (count < totalInstances)
+    }.toMap
+
+    Pattern(nodeLabel, propertiesWithOptionality, allPatterns.keys.find(_.nodeLabel == nodeLabel).map(_.edges).getOrElse(Set.empty))
+  }.toSeq
+}
+
+
   def inferTypes(spark: SparkSession, dataset: DataFrame): Map[String, String] = {
+    import spark.implicits._
+
     val inferredSchema = dataset.schema.fields.map { field =>
       val columnName = field.name
-      val sampleData = dataset.select(col(columnName)).take(1000).map(_.get(0))
+      val sampleData = dataset.select($"`$columnName`").take(1000).map(_.get(0))
       val inferredType = sampleData.collect {
         case v if v.isInstanceOf[Int] => "INT"
         case v if v.isInstanceOf[Long] => "LONG"
@@ -326,6 +352,4 @@ def extractProperties(pattern: String): Seq[String] = {
 
     inferredSchema
   }
-
-
 }
