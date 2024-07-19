@@ -1,4 +1,5 @@
-import org.neo4j.driver.{AuthTokens, Driver, GraphDatabase, Session}
+import org.neo4j.driver.{AuthTokens, Driver, GraphDatabase, Record, Session}
+import scala.collection.JavaConverters._
 
 object Neo4jConnection {
   val uri = "bolt://localhost:7687"
@@ -11,14 +12,11 @@ object Neo4jConnection {
     driver.close()
   }
 
-  def executeQuery(query: String): Unit = {
+  def executeQuery(query: String): Seq[Record] = {
     val session: Session = driver.session()
     try {
       val result = session.run(query)
-      while (result.hasNext) {
-        val record = result.next()
-        println(record)
-      }
+      result.list().asScala.toSeq // Convert Buffer to Seq
     } finally {
       session.close()
     }

@@ -56,7 +56,7 @@ object Main {
         val noisyDataset = Noise.addNoise(dataset, noiseLevel)
 
         // Insert the noisy dataset into Neo4j
-        CSVToNeo4j.insertData(noisyDataset, "Person")
+        CSVToNeo4j.insertData(noisyDataset, "NoisyDataset")
 
         // Detect patterns in the dataset
         val patterns = DataToPattern.detectPatterns(noisyDataset)
@@ -94,7 +94,7 @@ object Main {
       val mergedPatterns = uniquePatterns.as[Seq[String]].map(normalizeAndMergePatterns)
         .distinct()
         .toDF("final_patterns")
-      mergedPatterns.show(false)
+      // mergedPatterns.show(false)
 
       // Load existing merged patterns if they exist
       val existingMergedPatterns = if (Files.exists(Paths.get(mergedPatternsFile))) {
@@ -111,6 +111,9 @@ object Main {
 
       // Extract ground truth patterns from allPatterns
       val groundTruthPatterns = allPatterns.keys.map(_.toSet).toList
+
+      // Fetch ground truth patterns from Neo4j
+      // val groundTruthPatterns = Neo4jConnection.fetchGroundTruthPatterns()
 
       // Extract detected patterns from updatedMergedPatterns
       val detectedPatterns = updatedMergedPatterns.collect().map(row => row.getAs[String]("final_patterns").split("\\|").toSet).toList
@@ -134,6 +137,7 @@ object Main {
 
     } finally {
       spark.stop()
+      Neo4jConnection.close()
     }
   }
 
