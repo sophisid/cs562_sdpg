@@ -1,7 +1,7 @@
 import org.neo4j.driver.{AuthTokens, Driver, GraphDatabase, Session}
 
 object Neo4jConnection {
-  val uri = "neo4j://localhost:7687"
+  val uri = "bolt://localhost:7687"
   val user = "neo4j"
   val password = "password"
 

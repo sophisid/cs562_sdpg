@@ -34,8 +34,8 @@ object Main {
       // Load existing merged patterns if they exist and print them
       if (Files.exists(Paths.get(mergedPatternsFile))) {
         val existingMergedPatterns = spark.read.parquet(mergedPatternsFile)
-        println("Existing Merged Patterns:")
-        existingMergedPatterns.show(false)
+        // println("Existing Merged Patterns:")
+        // existingMergedPatterns.show(false)
       }
 
       // Load existing patterns and rows if the file exists
