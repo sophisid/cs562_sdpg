@@ -208,8 +208,8 @@ object Main {
         println(s"Raw pattern: $pattern") // Print the raw pattern for debugging
 
         val nodeLabel = extractNodeLabelFromPattern(pattern, predefinedLabels)
-        val properties = extractPropertiesFromPattern(pattern)
-        val edges = extractEdgesFromPattern(pattern)
+        val properties = DataToPattern.extractPropertiesFromPattern(pattern)
+        val edges = DataToPattern.extractEdgesFromPattern(pattern)
 
         println(s"Extracted Node Label: $nodeLabel")
         println(s"Extracted Properties: ${properties.mkString(", ")}")
@@ -224,7 +224,7 @@ object Main {
         }
 
         if (edges.nonEmpty) {
-          println(s"  - Edges: {${edges.map(edge => s"""(${edge._1} -> ${edge._2})""").mkString(", ")}}")
+          println(s"  - Edges: {${edges.mkString(", ")}}")
         } else {
           println(s"  - Edges: {}")
         }
@@ -235,47 +235,9 @@ object Main {
   }
 
   def extractNodeLabelFromPattern(pattern: String, predefinedLabels: List[String]): String = {
-    // Check if the pattern contains any of the predefined labels
     predefinedLabels.find(label => pattern.toLowerCase.contains(label.toLowerCase)) match {
       case Some(matchedLabel) => matchedLabel
       case None => "UnknownNodeLabel"
-    }
-  }
-
-
-  def extractPropertiesFromPattern(pattern: String): Seq[String] = {
-    val mapStart = pattern.indexOf("HashMap(") match {
-      case -1 => pattern.indexOf("Map(")
-      case idx => idx
-    }
-    val mapEnd = pattern.indexOf(')', mapStart)
-    if (mapStart > -1 && mapEnd > mapStart) {
-      val propertiesString = pattern.substring(mapStart + 7, mapEnd) // +7 to skip "HashMap(" or "Map("
-      if (propertiesString.nonEmpty) {
-        propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
-      } else {
-        Seq.empty
-      }
-    } else {
-      Seq.empty
-    }
-  }
-
-  def extractEdgesFromPattern(pattern: String): Set[(String, String)] = {
-    val setStart = pattern.indexOf("Set(")
-    val setEnd = pattern.indexOf(')', setStart)
-    if (setStart > -1 && setEnd > setStart) {
-      val edgesString = pattern.substring(setStart + 4, setEnd) // +4 to skip "Set("
-      if (edgesString.nonEmpty) {
-        edgesString.split(", ").map { edge =>
-          val edgeTuple = edge.stripPrefix("(").stripSuffix(")").split("->").map(_.trim)
-          if (edgeTuple.length == 2) (edgeTuple(0), edgeTuple(1)) else ("", "")
-        }.filterNot(edge => edge._1.isEmpty && edge._2.isEmpty).toSet
-      } else {
-        Set.empty
-      }
-    } else {
-      Set.empty
     }
   }
 
@@ -303,7 +265,7 @@ object Main {
     println(s"F1 Score: $f1")
   }
 
-def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): Seq[Pattern] = {
+def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]], threshold: Double = 0.95): Seq[Pattern] = {
   val propertyCounts = mutable.Map[String, mutable.Map[String, Int]]()
   val totalCounts = mutable.Map[String, Int]()
 
@@ -324,12 +286,14 @@ def findOptionalPropertiesAndCreatePatterns(allPatterns: mutable.LinkedHashMap[P
   propertyCounts.map { case (nodeLabel, counts) =>
     val totalInstances = totalCounts(nodeLabel)
     val propertiesWithOptionality = counts.map { case (property, count) =>
-      property -> (count < totalInstances)
+      val appearanceRate = count.toDouble / totalInstances
+      property -> (appearanceRate < threshold) // Mark as optional if appearance rate is below the threshold
     }.toMap
 
     Pattern(nodeLabel, propertiesWithOptionality, allPatterns.keys.find(_.nodeLabel == nodeLabel).map(_.edges).getOrElse(Set.empty))
   }.toSeq
 }
+
 
 
   def inferTypes(spark: SparkSession, dataset: DataFrame): Map[String, String] = {

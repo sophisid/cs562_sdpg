@@ -1,4 +1,4 @@
-import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.{DataFrame, Row}
 import scala.collection.mutable
 import java.security.MessageDigest
 import java.math.BigInteger
@@ -20,16 +20,16 @@ object DataToPattern {
       val hashedId = hashId(id)
       val uri = s"sdpg.gr/$label/$hashedId"
 
-      // Extract properties: include column names only if the value is not null
+      // Extract properties: include column names only if the value is not null and it's not an edge
       val properties = row.schema.fields.tail.filter { field =>
-        row.getAs[Any](field.name) != null
+        !predefinedLabels.exists(label => field.name.toLowerCase.contains(label.toLowerCase)) && row.getAs[Any](field.name) != null
       }.map(_.name).toSet
 
-      // Extract edges based on columns that start with "edge_"
-      val edges = row.schema.fields.tail.filter(_.name.startsWith("edge_")).map { field =>
-        val edgeType = field.name.stripPrefix("edge_")
-        val connectedNode = Option(row.getAs[Any](field.name)).map(_.toString).getOrElse("")
-        (edgeType, connectedNode)
+      // Extract edges based on columns that match predefined labels
+      val edges = row.schema.fields.tail.filter { field =>
+        predefinedLabels.exists(label => field.name.toLowerCase.contains(label.toLowerCase))
+      }.map { field =>
+        field.name
       }.toSet
 
       // Extract instance as a LinkedHashMap to maintain insertion order
@@ -54,7 +54,6 @@ object DataToPattern {
     // Check if any of the header names contain predefined labels
     val matchedLabelInHeader = row.schema.fields.collectFirst {
       case field if predefinedLabels.exists(label => field.name.toLowerCase.contains(label.toLowerCase)) =>
-        // println(s"Matched header: ${field.name}")
         predefinedLabels.find(label => field.name.toLowerCase.contains(label.toLowerCase)).get
     }
 
@@ -62,17 +61,14 @@ object DataToPattern {
     val matchedLabelInRow = matchedLabelInHeader.orElse {
       row.schema.fields.collectFirst {
         case field if predefinedLabels.exists(label => Option(row.getAs[Any](field.name)).exists(_.toString.toLowerCase.contains(label.toLowerCase))) =>
-          // println(s"Matched field: ${field.name} with value: ${Option(row.getAs[Any](field.name)).map(_.toString).getOrElse("")}")
           predefinedLabels.find(label => Option(row.getAs[Any](field.name)).map(_.toString).getOrElse("").toLowerCase.contains(label.toLowerCase)).get
       }
     }
 
-    // Debugging: print the entire row to understand why no label is being matched
     if (matchedLabelInRow.isEmpty) {
       println(s"No matching label found for row: ${row.mkString(", ")}")
     }
 
-    // Return the matched label or "UnknownNodeLabel" if no match is found
     matchedLabelInRow.getOrElse("UnknownNodeLabel")
   }
 
@@ -95,14 +91,13 @@ object DataToPattern {
   }
 
   def printSortedPatterns(allPatterns: mutable.LinkedHashMap[Pattern, List[Map[String, Any]]]): Unit = {
-    // Print all unique patterns
     allPatterns.toList.sortBy { case (pattern, instances) =>
       (pattern.nodeLabel, pattern.properties.size, pattern.properties.mkString(", "))
     }.zipWithIndex.foreach { case ((pattern, instances), index) =>
       println(s"Unique Pattern ${index + 1}:")
       println(s"\tNode Label: ${pattern.nodeLabel}")
       println(s"\tProperties: ${pattern.properties.mkString(", ")}")
-      println(s"\tEdges: ${pattern.edges.map(e => s"${e._1} -> ${e._2}").mkString(", ")}")
+      println(s"\tEdges: ${pattern.edges.mkString(", ")}")
       println(s"\tNumber of Instances: ${instances.size}")
       instances.take(5).foreach { instance =>
         println(s"\t\tInstance: ${instance.map { case (k, v) => s"$k: $v" }.mkString(", ")}")
@@ -116,7 +111,7 @@ object DataToPattern {
       println(s"Pattern ${index + 1}:")
       println(s"\tNode Label: ${pattern.nodeLabel}")
       println(s"\tProperties: ${pattern.properties.mkString(", ")}")
-      println(s"\tEdges: ${pattern.edges.map(e => s"${e._1} -> ${e._2}").mkString(", ")}")
+      println(s"\tEdges: ${pattern.edges.mkString(", ")}")
       println(s"\tNumber of Instances: ${instances.size}")
       instances.take(5).foreach { instance =>
         println(s"\t\tInstance: ${instance.map { case (k, v) => s"$k-> $v" }.mkString(", ")}")
@@ -125,19 +120,41 @@ object DataToPattern {
     }
   }
 
-  def extractPropertiesFromPattern(pattern: String, predefinedLabels: List[String]): Seq[String] = {
-    val propertiesStart = pattern.indexOf("Map(") + 4 // +4 to skip "Map("
-    val propertiesEnd = pattern.indexOf(')', propertiesStart)
-    
-    if (propertiesStart > -1 && propertiesEnd > propertiesStart) {
-      val propertiesString = pattern.substring(propertiesStart, propertiesEnd)
-      if (propertiesString.nonEmpty) {
-        propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
-      } else {
-        Seq.empty
-      }
+def extractPropertiesFromPattern(pattern: String): Seq[String] = {
+  val mapStart = pattern.indexOf("HashMap(") match {
+    case -1 => pattern.indexOf("Map(")
+    case idx => idx
+  }
+  if (mapStart == -1) return Seq.empty // Ensure starting delimiter exists
+
+  val mapEnd = pattern.indexOf(')', mapStart)
+  if (mapEnd == -1 || mapEnd <= mapStart) return Seq.empty // Ensure ending delimiter exists and is after start
+
+  try {
+    val propertiesString = pattern.substring(mapStart + 7, mapEnd) // Adjust start index based on delimiter
+    if (propertiesString.nonEmpty) {
+      propertiesString.split(", ").map(_.split("->")(0).trim).toSeq
     } else {
       Seq.empty
+    }
+  } catch {
+    case e: Exception => 
+      // println(s"Error extracting properties from pattern: $pattern. Error: ${e.getMessage}")
+      Seq.empty
+  }
+}
+
+
+  def extractEdgesFromPattern(pattern: String): Set[String] = {
+    val setStart = pattern.indexOf("Set(")
+    val setEnd = pattern.indexOf(')', setStart)
+    if (setStart == -1 || setEnd <= setStart) return Set.empty
+
+    val edgesString = pattern.substring(setStart + 4, setEnd) // +4 to skip "Set("
+    if (edgesString.nonEmpty) {
+      edgesString.split(", ").map(_.stripPrefix("(").stripSuffix(")").split("->")(0).trim).toSet
+    } else {
+      Set.empty
     }
   }
 }
