@@ -45,3 +45,6 @@ schemadiscovery/hashed_data.parquet/._SUCCESS.crc
 /schemadiscovery/merged_patterns.parquet
 schemadiscovery/patterns_and_rows.ser
 schemadiscovery/build.sbt
+
+../.DS_Store
+../.metals/metals.mv.db
