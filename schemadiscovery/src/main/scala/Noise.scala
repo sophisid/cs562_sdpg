@@ -1,24 +1,24 @@
-import org.apache.spark.sql.{DataFrame, SparkSession, Encoders}
 import scala.util.Random
-import org.apache.spark.sql.catalyst.encoders.RowEncoder
 
 object Noise {
-  def addNoise(df: DataFrame, noisePercentage: Double): DataFrame = {
-    val spark = SparkSession.builder().getOrCreate()
-    import spark.implicits._
 
-    val schema = df.schema
-    val encoder = RowEncoder(schema)
+  // Introduce noise to a list of nodes represented as a list of maps
+  def addNoise(nodes: List[Map[String, Any]], noisePercentage: Double): List[Map[String, Any]] = {
+    val random = new scala.util.Random
 
-    // Add noise but avoid modifying columns that have "id" in their name
-    val noisyData = df.map(row => {
-      org.apache.spark.sql.Row.fromSeq(row.toSeq.zipWithIndex.map {
-        case (value, index) if schema(index).name.toLowerCase.contains("id") => value  // Do not alter "id" columns
-        case (value, _) if Random.nextDouble() < noisePercentage => null  // Randomly nullify other values
-        case (value, _) => value  // Keep other values unchanged
-      })
-    })(encoder)
+    // For each node, randomly nullify some properties based on noisePercentage
+    nodes.map { node =>
+      val numProperties = node.size
+      val numToNullify = (numProperties * noisePercentage).toInt
 
-    noisyData
+      // Randomly select properties to nullify
+      val keysToNullify = Random.shuffle(node.keys.toList).take(numToNullify)
+
+      // Create a new map with the selected properties set to null
+      node.map {
+        case (key, value) if keysToNullify.contains(key) => (key, null)
+        case other => other
+      }
+    }
   }
 }

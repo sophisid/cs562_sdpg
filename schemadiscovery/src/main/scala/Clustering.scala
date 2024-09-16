@@ -1,58 +1,61 @@
-// Clustering.scala
-import org.apache.spark.ml.clustering.GaussianMixture
-import org.apache.spark.ml.feature.{VectorAssembler, BucketedRandomProjectionLSH}
+import org.apache.spark.ml.{Pipeline}
+import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, VectorAssembler, StringIndexer}
+import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.sql.DataFrame
-import org.apache.spark.sql.types.{DoubleType, IntegerType}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.clustering.GaussianMixture
+
 
 object Clustering {
-  // Function to dynamically get numeric columns
-  def getNumericColumns(df: DataFrame): Array[String] = {
-    df.schema.fields
-      .filter(field => field.dataType == DoubleType || field.dataType == IntegerType)  // You can add more numeric types if needed
-      .map(_.name)
-  }
 
-  // Gaussian Mixture Model for clustering
-  def applyGaussianMixture(df: DataFrame): DataFrame = {
-    // Dynamically find numeric columns
-    val numericColumns = getNumericColumns(df)
-
-    // Check if there are numeric columns to work with
-    if (numericColumns.isEmpty) {
-      throw new IllegalArgumentException("No numeric columns found in the DataFrame")
+  def createFeatureVectors(df: DataFrame): DataFrame = {
+    val stringColumns = df.schema.fields.filter(_.dataType == org.apache.spark.sql.types.StringType).map(_.name)
+    val indexers = stringColumns.map { col =>
+      new StringIndexer()
+        .setInputCol(col)
+        .setOutputCol(s"${col}_index")
+        .setHandleInvalid("keep")  // Skip rows with invalid (NULL) values
     }
 
-    // Assemble feature columns into a single feature vector
+    // Apply all string indexers using a Pipeline
+    val pipeline = new Pipeline().setStages(indexers)
+    val indexedDF = pipeline.fit(df).transform(df)
+
+    // Collect all columns for features (numeric and indexed columns)
+    val featureColumns = indexedDF.columns.filter(_.endsWith("_index")) ++ df.columns.filterNot(stringColumns.contains(_))
+
+    // VectorAssembler to combine the indexed columns into a feature vector
     val assembler = new VectorAssembler()
-      .setInputCols(numericColumns)  // Dynamically set feature columns
+      .setInputCols(featureColumns)
       .setOutputCol("features")
 
-    val featureDF = assembler.transform(df)
+    // Transform the dataset to feature vectors
+    assembler.transform(indexedDF)
+  }
 
-    // Apply Gaussian Mixture Model (GMM) for clustering
+  // Refine LSH clusters using GMM (Gaussian Mixture Model) clustering
+  def refineClusters(df: DataFrame): DataFrame = {
     val gmm = new GaussianMixture()
-      .setK(3)  // Set number of clusters
+      .setK(5) // You can adjust the number of clusters (k)
       .setFeaturesCol("features")
-      .setPredictionCol("prediction")
+      .setPredictionCol("cluster")
 
-    // Fit the model and transform the DataFrame
-    val predictions = gmm.fit(featureDF).transform(featureDF)
+    val model = gmm.fit(df)
+    val clusteredDF = model.transform(df)
 
-    predictions
+    clusteredDF
   }
 
-  // LSH for approximate similarity search
-  def applyLSH(df: DataFrame): DataFrame = {
-    // Ensure the "features" column exists after applying Gaussian Mixture
-    val lsh = new BucketedRandomProjectionLSH()
-      .setBucketLength(2.0)
-      .setInputCol("features")  // Use the features column
-      .setOutputCol("hashes")
+    def performLSHClustering(df: DataFrame): DataFrame = {
+      val lsh = new BucketedRandomProjectionLSH()
+        .setInputCol("features")
+        .setOutputCol("hashes")
+        .setBucketLength(2.0) // Adjust bucket length as needed
 
-    // Fit the LSH model and transform the DataFrame
-    val lshModel = lsh.fit(df)
-    val transformedDF = lshModel.transform(df)
+      val model = lsh.fit(df)
+      val lshDF = model.transform(df)
 
-    transformedDF
-  }
+      lshDF
+    }
 }
+

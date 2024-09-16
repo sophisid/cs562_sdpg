@@ -60,31 +60,3 @@ class Pattern(
     s"Nodes: [$nodeStr]\nEdges: [$edgeStr]\nConstraints: ${constraints.mkString(", ")}"
   }
 }
-
-// Example usage
-// object Pattern {
-//   def main(args: Array[String]): Unit = {
-//     // Define some nodes
-//     val alice = Node("Person", Map("name" -> "Alice", "age" -> 30), isOptional = false, minCardinality = 1, maxCardinality = 1)
-//     val bob = Node("Person", Map("name" -> "Bob", "age" -> 35), isOptional = false, minCardinality = 1, maxCardinality = 1)
-//     val company = Node("Company", Map("name" -> "TechCorp"), isOptional = true, minCardinality = 1, maxCardinality = -1)  // Optional node
-
-//     // Define an edge
-//     val worksAt = Edge(alice, "WORKS_AT", company, Map("since" -> "2020"), isOptional = false, minCardinality = 1, maxCardinality = 1)
-
-//     // Define a constraint (e.g., find people whose age is greater than 30)
-//     val ageConstraint = Constraint("age", ">", 30)
-
-//     // Create the pattern
-//     val pattern = new Pattern()
-
-//     pattern.addNode(alice)
-//     pattern.addNode(bob)
-//     pattern.addNode(company)
-//     pattern.addEdge(worksAt)
-//     pattern.addConstraint(ageConstraint)
-
-//     // Display the pattern
-//     println(pattern.toString)
-//   }
-// }
