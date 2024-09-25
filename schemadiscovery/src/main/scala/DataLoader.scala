@@ -1,40 +1,57 @@
-import org.neo4j.driver.{AuthTokens, GraphDatabase, Session}
-import scala.jdk.CollectionConverters._  // Import JavaConverters to convert java.util.List to Scala collections
+import org.apache.spark.sql.{DataFrame, Row, SparkSession}
+import org.apache.spark.sql.types._
+import org.neo4j.driver.{AuthTokens, GraphDatabase}
+import java.util.HashMap
+import scala.collection.JavaConverters._
 
 object DataLoader {
 
-  // Function to fetch all node labels from Neo4j using the Java Driver
-  def getAllNodeLabels(): List[String] = {
-    val driver = GraphDatabase.driver("bolt://localhost:7687", AuthTokens.basic("neo4j", "password"))
-    val session: Session = driver.session()
+  // Function to load all nodes without labels
+  def loadAllNodes(spark: SparkSession): DataFrame = {
+    import spark.implicits._
 
-    val result = session.run("CALL db.labels()")
+    val uri = "bolt://localhost:7687"
+    val user = "neo4j"
+    val password = "password"
 
-    // Convert Java List to Scala List using asScala
-    val labels = result.list().asScala.map(_.get(0).asString).toList
+    val driver = GraphDatabase.driver(uri, AuthTokens.basic(user, password))
+    val session = driver.session()
 
-    session.close()
-    driver.close()
+    println("Loading all nodes from Neo4j")
 
-    labels
-  }
-
-  // Load data for a specific node label using the Java Driver
-  def loadFromNeo4j(label: String): List[Map[String, Any]] = {
-    val driver = GraphDatabase.driver("bolt://localhost:7687", AuthTokens.basic("neo4j", "password"))
-    val session: Session = driver.session()
-
-    val result = session.run(s"MATCH (n:$label) RETURN n")
-
-    // Convert Java List to Scala List and process the records
-    val nodes = result.list().asScala.map(record => {
+    // val result = session.run("MATCH (n) RETURN n")
+    val result = session.run("MATCH (n) RETURN n LIMIT 1000")
+    val nodes = result.list().asScala.map { record =>
       val node = record.get("n").asNode()
-      node.keys().asScala.map(key => key -> node.get(key).asObject()).toMap
-    }).toList
+      val props = node.asMap().asScala.toMap
+      // Include node ID if needed
+      props + ("_nodeId" -> node.id().toString)
+    }
 
     session.close()
     driver.close()
 
-    nodes
+    // Collect all unique keys to define the schema
+    val allKeys = nodes.flatMap(_.keys).toSet
+
+    // Define the schema based on the keys
+    val fields = allKeys.map { key =>
+      StructField(key, StringType, nullable = true)
+    }.toArray
+    val schema = StructType(fields)
+
+    // Convert list of Maps to DataFrame
+    val rows = nodes.map { nodeMap =>
+      val values = schema.fields.map { field =>
+        Option(nodeMap.getOrElse(field.name, null)).map(_.toString).orNull
+      }
+      Row(values: _*)
+    }
+
+    val nodesDF = spark.createDataFrame(spark.sparkContext.parallelize(rows.toSeq), schema)
+    println(s"Total nodes loaded: ${nodesDF.count()}")
+    println("Schema of nodesDF:")
+    nodesDF.printSchema()
+    nodesDF
   }
 }

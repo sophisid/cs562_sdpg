@@ -1,61 +1,79 @@
-import org.apache.spark.ml.{Pipeline}
-import org.apache.spark.ml.feature.{BucketedRandomProjectionLSH, VectorAssembler, StringIndexer}
-import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.sql.DataFrame
+import org.apache.spark.ml.feature._
 import org.apache.spark.sql.functions._
-import org.apache.spark.ml.clustering.GaussianMixture
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.ml.linalg.{Vector, DenseVector}
+import org.apache.spark.sql.expressions.UserDefinedFunction
 
 
 object Clustering {
 
-  def createFeatureVectors(df: DataFrame): DataFrame = {
-    val stringColumns = df.schema.fields.filter(_.dataType == org.apache.spark.sql.types.StringType).map(_.name)
-    val indexers = stringColumns.map { col =>
-      new StringIndexer()
-        .setInputCol(col)
-        .setOutputCol(s"${col}_index")
-        .setHandleInvalid("keep")  // Skip rows with invalid (NULL) values
-    }
-
-    // Apply all string indexers using a Pipeline
-    val pipeline = new Pipeline().setStages(indexers)
-    val indexedDF = pipeline.fit(df).transform(df)
-
-    // Collect all columns for features (numeric and indexed columns)
-    val featureColumns = indexedDF.columns.filter(_.endsWith("_index")) ++ df.columns.filterNot(stringColumns.contains(_))
-
-    // VectorAssembler to combine the indexed columns into a feature vector
+  // Function to perform LSH clustering
+  def performLSHClustering(df: DataFrame): DataFrame = {
+    // Assemble the binary features into a vector
     val assembler = new VectorAssembler()
-      .setInputCols(featureColumns)
+      .setInputCols(df.columns.filterNot(_ == "_nodeId"))
       .setOutputCol("features")
 
-    // Transform the dataset to feature vectors
-    assembler.transform(indexedDF)
+    val featureDF = assembler.transform(df)
+
+    // Apply MinHash LSH
+    val mh = new MinHashLSH()
+      .setNumHashTables(5)
+      .setInputCol("features")
+      .setOutputCol("hashes")
+
+    val model = mh.fit(featureDF)
+    val lshDF = model.transform(featureDF)
+    // Μετά το lshDF
+    println(s"LSH clustering completed. DataFrame has ${lshDF.count()} rows.")
+    lshDF.select("hashes").show(5, truncate = false)
+
+    lshDF
   }
 
-  // Refine LSH clusters using GMM (Gaussian Mixture Model) clustering
-  def refineClusters(df: DataFrame): DataFrame = {
-    val gmm = new GaussianMixture()
-      .setK(5) // You can adjust the number of clusters (k)
-      .setFeaturesCol("features")
-      .setPredictionCol("cluster")
+  // Function to create patterns from clusters
+  def createPatternsFromClusters(df: DataFrame): Array[Pattern] = {
+    // Exclude certain columns
+    val excludeCols = Set("_nodeId", "features", "hashes", "hashKey")
 
-    val model = gmm.fit(df)
-    val clusteredDF = model.transform(df)
+    // Create a hashKey column by converting the hashes to a string
+    val dfWithHashKey = df.withColumn("hashKey", udf((hashes: Seq[Vector]) => {
+      hashes.map(_.toArray.mkString("_")).mkString("_")
+    }).apply(col("hashes")))
 
-    clusteredDF
-  }
+    // Group by the hashKey to get clusters
+    val clustersDF = dfWithHashKey.groupBy("hashKey")
+      .agg(collect_list(col("_nodeId")).as("nodeIds"))
 
-    def performLSHClustering(df: DataFrame): DataFrame = {
-      val lsh = new BucketedRandomProjectionLSH()
-        .setInputCol("features")
-        .setOutputCol("hashes")
-        .setBucketLength(2.0) // Adjust bucket length as needed
+    // For each cluster, find common properties
+    val patterns = clustersDF.collect().map { row =>
+      val nodeIds = row.getAs[Seq[String]]("nodeIds")
+      val hashKey = row.getAs[String]("hashKey")
 
-      val model = lsh.fit(df)
-      val lshDF = model.transform(df)
+      // Filter the original DataFrame to get nodes in the cluster
+      val clusterNodesDF = dfWithHashKey.filter(col("hashKey") === hashKey)
 
-      lshDF
+      // Find common properties (columns where all values are 1)
+      val propertyCols = df.columns.filterNot(colName => excludeCols.contains(colName))
+
+      val commonProperties = propertyCols.filter { colName =>
+        val colSum = clusterNodesDF.agg(sum(col(colName))).first().getLong(0)
+        colSum == clusterNodesDF.count()
+      }
+
+      // Create a Node with the common properties
+      val node = Node(
+        label = s"Cluster_$hashKey",
+        properties = commonProperties.map(prop => prop -> 1).toMap
+      )
+
+      val pattern = new Pattern(nodes = List(node))
+      pattern
     }
+    println(s"Total patterns created: ${patterns.length}")
+    println("Sample patterns:")
+    patterns.take(5).foreach(pattern => println(pattern.toString))
+    patterns
+  }
 }
-

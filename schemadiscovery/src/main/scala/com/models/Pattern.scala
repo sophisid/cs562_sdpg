@@ -1,27 +1,27 @@
 // Define the Node class
 case class Node(
-  label: String, 
-  properties: Map[String, Any], 
-  isOptional: Boolean = false, 
-  minCardinality: Int = 1, 
+  label: String,
+  properties: Map[String, Any],
+  isOptional: Boolean = false,
+  minCardinality: Int = 1,
   maxCardinality: Int = 1
 )
 
 // Define the Edge class
 case class Edge(
-  startNode: Node, 
-  relationshipType: String, 
-  endNode: Node, 
-  properties: Map[String, Any], 
-  isOptional: Boolean = false, 
-  minCardinality: Int = 1, 
+  startNode: Node,
+  relationshipType: String,
+  endNode: Node,
+  properties: Map[String, Any],
+  isOptional: Boolean = false,
+  minCardinality: Int = 1,
   maxCardinality: Int = 1
 )
 
 // Define the Constraint class
 case class Constraint(
-  field: String, 
-  operation: String, 
+  field: String,
+  operation: String,
   value: Any
 )
 
@@ -50,7 +50,7 @@ class Pattern(
   // Display the pattern including nodes, edges, and constraints
   override def toString: String = {
     val nodeStr = nodes.map { node =>
-      s"Node(label=${node.label}, optional=${node.isOptional}, cardinality=${node.minCardinality}..${if (node.maxCardinality == -1) "N" else node.maxCardinality})"
+      s"Node(label=${node.label}, properties=${node.properties.keys.mkString("{", ", ", "}")}, optional=${node.isOptional}, cardinality=${node.minCardinality}..${if (node.maxCardinality == -1) "N" else node.maxCardinality})"
     }.mkString(", ")
 
     val edgeStr = edges.map { edge =>
