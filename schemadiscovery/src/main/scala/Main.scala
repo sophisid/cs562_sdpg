@@ -1,7 +1,6 @@
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.SparkConf
-import org.apache.spark.sql.types._
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types._
 
 object Main {
   def main(args: Array[String]): Unit = {
@@ -14,28 +13,37 @@ object Main {
     spark.sparkContext.setLogLevel("ERROR")
 
     import spark.implicits._
-    val startTime = System.nanoTime()
-    // Get the noise percentage from arguments or default to 0.0
-    val noisePercentage = if (args.length > 0) args(0).toDouble else 0.0
 
-    // Load all nodes without labels
-    // val nodesDF = DataLoader.loadAllNodes(spark).cache()
-    val nodesDF = DataLoader.loadAllNodes(spark).repartition(10).cache()
+    // Load all nodes with labels
+    val nodesDF = DataLoader.loadAllNodes(spark).cache()
 
-
-    // Create binary matrix of properties
+    // Matrix of properties
     val binaryMatrixDF = DataProcessor.createBinaryMatrix(nodesDF).cache()
 
-    // Perform LSH clustering
-    val lshDF = Clustering.performLSHClustering(binaryMatrixDF)
+    // LSH clustering
+    val lshDF = Clustering.performLSHClustering(binaryMatrixDF).cache()
 
-    // Create patterns from clusters
-    val patterns = Clustering.createPatternsFromClusters(lshDF)
+    // Create patterns from clusters and create mapping nodeId -> clusterLabel
+    val (patterns, nodeIdToClusterLabel) = Clustering.createPatternsFromClusters(lshDF)
 
-    // Print patterns
     patterns.foreach(pattern => println(pattern.toString))
-    val endTime = System.nanoTime()
-    println(s"Execution time: ${(endTime - startTime) / 1e9} seconds")
+
+    // Prepare Data for Evaluation
+    val predictedLabelsDF = nodeIdToClusterLabel.toSeq.toDF("_nodeId", "predictedClusterLabel")
+
+    val nodesWithLabelsDF = nodesDF
+      .select($"_nodeId".cast(LongType), $"_labels")
+
+    val evaluationDF = nodesWithLabelsDF.join(predictedLabelsDF, "_nodeId")
+
+    evaluationDF.cache()
+    evaluationDF.count() // Trigger caching
+
+    // Compute metrics using the new method
+    ClusteringEvaluation.computeMetricsWithoutPairwise(evaluationDF)
+
     spark.stop()
   }
 }
+
+

@@ -16,7 +16,7 @@ case class Edge(
   isOptional: Boolean = false,
   minCardinality: Int = 1,
   maxCardinality: Int = 1
-)
+) extends Serializable
 
 // Define the Constraint class
 case class Constraint(
@@ -26,11 +26,13 @@ case class Constraint(
 )
 
 // Define the Pattern class that holds nodes, edges, and constraints
+@SerialVersionUID(1L)
 class Pattern(
   var nodes: List[Node] = List(),
   var edges: List[Edge] = List(),
   var constraints: List[Constraint] = List()
-) {
+)extends Serializable 
+ {
 
   // Add a node to the pattern
   def addNode(node: Node): Unit = {
