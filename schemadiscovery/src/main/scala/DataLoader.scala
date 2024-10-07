@@ -57,7 +57,7 @@ object DataLoader {
     nodesDF
   }
 
-  def loadRelationships(spark: SparkSession): DataFrame = {
+  def loadAllRelationships(spark: SparkSession): DataFrame = {
     import spark.implicits._
 
     val uri = "bolt://localhost:7687"
@@ -69,7 +69,7 @@ object DataLoader {
 
     println("Loading all relationships from Neo4j")
 
-    val result = session.run("MATCH (n)-[r]->(m) RETURN id(n) AS srcId, id(m) AS dstId, type(r) AS relationshipType, properties(r) AS properties")
+    val result = session.run("MATCH (n)-[r]->(m) RETURN id(n) AS srcId, id(m) AS dstId, type(r) AS relationshipType, properties(r) AS properties LIMIT 1000")
 
     val relationships = result.list().asScala.map { record =>
       val srcId = record.get("srcId").asLong()

@@ -8,6 +8,7 @@ case class Node(
 )
 
 // Define the Edge class
+@SerialVersionUID(1L)
 case class Edge(
   startNode: Node,
   relationshipType: String,
