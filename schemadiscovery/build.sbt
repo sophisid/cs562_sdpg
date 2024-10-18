@@ -23,7 +23,7 @@ lazy val root = (project in file("."))
       "org.apache.spark" %% "spark-hive" % "3.2.4",  
       "org.neo4j" % "neo4j-connector-apache-spark_2.12" % "4.1.4",
       "org.neo4j.driver" % "neo4j-java-driver" % "4.4.10",
-       "org.scala-lang" % "scala-library" % scalaVer
+      "org.scala-lang" % "scala-library" % scalaVer
     ),
 
     // Add Neo4j Maven repository to resolve the connector
