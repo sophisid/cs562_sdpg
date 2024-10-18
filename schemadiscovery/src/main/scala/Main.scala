@@ -26,7 +26,23 @@ object Main {
     // Create patterns from clusters and create mapping nodeId -> clusterLabel
     val (patterns, nodeIdToClusterLabel) = Clustering.createPatternsFromClusters(lshDF)
 
-    patterns.foreach(pattern => println(pattern.toString))
+    // **Edge Discovery Starts Here**
+
+    // Load relationships
+    val relationshipsDF = DataLoader.loadAllRelationships(spark)
+
+    // Create edges
+    val edges = Clustering.createEdgesFromRelationships(relationshipsDF, nodeIdToClusterLabel)
+
+    // Integrate edges into patterns
+    val updatedPatterns = Clustering.integrateEdgesIntoPatterns(edges, patterns)
+
+    // Display the updated patterns
+    updatedPatterns.foreach { pattern =>
+      println(pattern.toString)
+    }
+
+    // **Edge Discovery Ends Here**
 
     // Prepare Data for Evaluation
     val predictedLabelsDF = nodeIdToClusterLabel.toSeq.toDF("_nodeId", "predictedClusterLabel")
@@ -45,5 +61,3 @@ object Main {
     spark.stop()
   }
 }
-
-

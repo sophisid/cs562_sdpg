@@ -142,40 +142,75 @@ object Clustering {
   }
 
   // Function to create edges from relationships
-  def createEdgesFromRelationships(relationshipsDF: DataFrame, nodeIdToClusterLabel: Map[Long, String]): Array[Edge] = {
+  def createEdgesFromRelationships(
+    relationshipsDF: DataFrame,
+    nodeIdToClusterLabel: Map[Long, String]
+  ): Array[Edge] = {
     val spark = relationshipsDF.sparkSession
     import spark.implicits._
 
-    // Broadcast the nodeIdToClusterLabel mapping
+    // Broadcast the nodeIdToClusterLabel mapping for efficiency
     val nodeIdToClusterLabelBroadcast = spark.sparkContext.broadcast(nodeIdToClusterLabel)
 
-    // Convert relationships to edges
-    val edges = relationshipsDF.rdd.map { row =>
+    // Map relationships to edges
+    val edges = relationshipsDF.rdd.flatMap { row =>
       val srcId = row.getAs[Long]("srcId")
       val dstId = row.getAs[Long]("dstId")
       val relationshipType = row.getAs[String]("relationshipType")
-      val properties = row.getAs[Map[String, String]]("properties")
+      val properties = row.getAs[Map[String, Any]]("properties")
 
-      val nodeIdToClusterLabel = nodeIdToClusterLabelBroadcast.value
+      val clusterLabelSrc = nodeIdToClusterLabelBroadcast.value.get(srcId)
+      val clusterLabelDst = nodeIdToClusterLabelBroadcast.value.get(dstId)
 
-      val startLabel = nodeIdToClusterLabel.getOrElse(srcId, "Unknown")
-      val endLabel = nodeIdToClusterLabel.getOrElse(dstId, "Unknown")
+      // Only create edge if both nodes have cluster labels and are in different clusters
+      for {
+        startLabel <- clusterLabelSrc
+        endLabel <- clusterLabelDst
+        if startLabel != endLabel
+      } yield {
+        val startNode = Node(label = startLabel, properties = Map.empty)
+        val endNode = Node(label = endLabel, properties = Map.empty)
 
-      val startNode = Node(label = startLabel, properties = Map.empty)
-      val endNode = Node(label = endLabel, properties = Map.empty)
-
-      Edge(
-        startNode = startNode,
-        relationshipType = relationshipType,
-        endNode = endNode,
-        properties = properties
-      )
+        Edge(
+          startNode = startNode,
+          relationshipType = relationshipType,
+          endNode = endNode,
+          properties = properties
+        )
+      }
     }.collect()
-
-    println(s"Total edges created: ${edges.length}")
-    println("Sample edges:")
-    edges.take(5).foreach(edge => println(edge.toString))
 
     edges
   }
+  
+  def integrateEdgesIntoPatterns(
+      edges: Array[Edge],
+      existingPatterns: Array[Pattern]
+  ): Array[Pattern] = {
+    // Map cluster labels to patterns
+    val clusterLabelToPattern = existingPatterns.map(pattern => pattern.nodes.head.label -> pattern).toMap
+
+    // For any new clusters, add patterns
+    val patternsMap = collection.mutable.Map(clusterLabelToPattern.toSeq: _*)
+
+    edges.foreach { edge =>
+      // Get or create the pattern for the start node
+      val startPattern = patternsMap.getOrElseUpdate(edge.startNode.label, {
+        val newPattern = new Pattern()
+        newPattern.addNode(edge.startNode)
+        newPattern
+      })
+
+      // Add the end node to the start pattern if not present
+      if (!startPattern.nodes.exists(_.label == edge.endNode.label)) {
+        startPattern.addNode(edge.endNode)
+      }
+
+      // Add the edge to the start pattern
+      startPattern.addEdge(edge)
+    }
+
+    patternsMap.values.toArray
+  }
+  
 }
