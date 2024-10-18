@@ -182,6 +182,7 @@ object Clustering {
 
     edges
   }
+  
   def integrateEdgesIntoPatterns(
       edges: Array[Edge],
       existingPatterns: Array[Pattern]

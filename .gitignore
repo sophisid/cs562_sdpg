@@ -34,9 +34,8 @@ src_managed/
 .worksheet
 
 # datasets non ziped
-datasets/LDBC/post_0_0.csv
-datasets/LDBC/ldbc_inputs1
-datasets/LDBC/__MACOSX
+datasets/*
+noisy_datasets/*
 
 .metals/metals.mv.db
 /.metals

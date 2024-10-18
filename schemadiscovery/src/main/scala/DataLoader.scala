@@ -19,8 +19,7 @@ object DataLoader {
 
     println("Loading all nodes from Neo4j")
 
-    // Modify the query to return labels
-    // val result = session.run("MATCH (n) RETURN n, labels(n) AS labels LIMIT 1000")
+    // The query to return property labels
     val result = session.run("MATCH (n) RETURN n, labels(n) AS labels")
     val nodes = result.list().asScala.map { record =>
       val node = record.get("n").asNode()
