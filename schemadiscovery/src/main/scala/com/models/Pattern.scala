@@ -1,6 +1,6 @@
 // Define the Node class
 case class Node(
-  label: String,
+  var label: String,
   properties: Map[String, Any],
   isOptional: Boolean = false,
   minCardinality: Int = 1,
@@ -42,8 +42,14 @@ class Pattern(
 
   // Add an edge to the pattern
   def addEdge(edge: Edge): Unit = {
-    edges = edges :+ edge
+    if (!edges.exists(e => 
+          e.relationshipType == edge.relationshipType && 
+          e.startNode.label == edge.startNode.label && 
+          e.endNode.label == edge.endNode.label)) {
+      edges = edges :+ edge
+    }
   }
+
 
   // Add a constraint to the pattern
   def addConstraint(constraint: Constraint): Unit = {
@@ -51,15 +57,16 @@ class Pattern(
   }
 
   // Display the pattern including nodes, edges, and constraints
-  override def toString: String = {
-    val nodeStr = nodes.map { node =>
-      s"Node(label=${node.label}, properties=${node.properties.keys.mkString("{", ", ", "}")}, optional=${node.isOptional}, cardinality=${node.minCardinality}..${if (node.maxCardinality == -1) "N" else node.maxCardinality})"
-    }.mkString(", ")
+ override def toString: String = {
+  val nodeStr = nodes.map { node =>
+    s"Node(label=${node.label}, properties=${node.properties.keys.mkString("{", ", ", "}")}, optional=${node.isOptional})"
+  }.mkString(", ")
 
-    val edgeStr = edges.map { edge =>
-      s"Edge(relationshipType=${edge.relationshipType}, optional=${edge.isOptional}, cardinality=${edge.minCardinality}..${if (edge.maxCardinality == -1) "N" else edge.maxCardinality})"
-    }.mkString(", ")
+  val edgeStr = edges.map { edge =>
+    s"Edge(relationshipType=${edge.relationshipType}, start=${edge.startNode.label}, end=${edge.endNode.label}, optional=${edge.isOptional})"
+  }.mkString(", ")
 
-    s"Nodes: [$nodeStr]\nEdges: [$edgeStr]\nConstraints: ${constraints.mkString(", ")}"
-  }
+  s"Nodes: [$nodeStr]\nEdges: [$edgeStr]\nConstraints: ${constraints.mkString(", ")}"
+}
+
 }
